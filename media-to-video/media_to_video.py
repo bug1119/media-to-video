@@ -14,6 +14,11 @@ from pathlib import Path
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
+RESOLUTION_TIERS = (
+    ("4K", 3840, 2160),
+    ("2K", 2560, 1440),
+    ("1080p", 1920, 1080),
+)
 
 
 def run(command: list[str]) -> None:
@@ -31,6 +36,43 @@ def has_audio(path: Path) -> bool:
         text=True,
     )
     return bool(json.loads(result.stdout).get("streams"))
+
+
+def dimensions(path: Path) -> tuple[int, int]:
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "json", str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    streams = json.loads(result.stdout).get("streams", [])
+    if not streams or not streams[0].get("width") or not streams[0].get("height"):
+        raise ValueError(f"cannot determine dimensions: {path}")
+    return int(streams[0]["width"]), int(streams[0]["height"])
+
+
+def auto_resolution(media: list[Path]) -> tuple[int, int]:
+    measured = [(path, dimensions(path)) for path in media]
+    minimum_long = min(max(width, height) for _, (width, height) in measured)
+    minimum_short = min(min(width, height) for _, (width, height) in measured)
+
+    for label, width, height in RESOLUTION_TIERS:
+        if minimum_long >= width and minimum_short >= height:
+            print(
+                f"Auto resolution: {label} ({width}x{height}); "
+                f"lowest source bounds are {minimum_long}x{minimum_short}."
+            )
+            return width, height
+
+    width, height = RESOLUTION_TIERS[-1][1:]
+    print(
+        f"Auto resolution: 1080p ({width}x{height}); lowest source bounds are "
+        f"{minimum_long}x{minimum_short}, so smaller sources will be upscaled."
+    )
+    return width, height
 
 
 def video_filter(width: int, height: int, fps: int, fit: str) -> str:
@@ -115,7 +157,9 @@ def add_music(source: Path, music: Path, output: Path, mode: str, volume: float)
     ])
 
 
-def parse_resolution(value: str) -> tuple[int, int]:
+def parse_resolution(value: str) -> tuple[int, int] | None:
+    if value.lower() == "auto":
+        return None
     try:
         width, height = (int(part) for part in value.lower().split("x", 1))
     except (ValueError, TypeError):
@@ -126,13 +170,33 @@ def parse_resolution(value: str) -> tuple[int, int]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=Path, help="directory containing photos and videos")
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  Basic, with automatic 4K/2K/1080p selection:
+    %(prog)s /path/to/media --output output.mp4
+
+  Show each photo for 2 seconds and mix looping background music:
+    %(prog)s /path/to/media --output output.mp4 \\
+      --music music.mp3 --photo-duration 2 --audio-mode mix --music-volume 0.25
+
+  Force 4K output and crop every item to fill the frame:
+    %(prog)s /path/to/media --output output-4k.mp4 \\
+      --resolution 3840x2160 --fit crop
+""",
+    )
+    parser.add_argument(
+        "directory", nargs="?", type=Path, help="directory containing photos and videos",
+    )
     parser.add_argument("--output", "-o", type=Path, default=Path("output.mp4"))
     parser.add_argument("--music", type=Path, help="optional MP3 or other ffmpeg-readable audio")
     parser.add_argument("--photo-duration", type=float, default=2.0)
-    parser.add_argument("--resolution", type=parse_resolution, default=(1920, 1080))
-    parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument(
+        "--resolution", type=parse_resolution, default=None,
+        help="auto, or an explicit even-sized resolution such as 3840x2160 (default: auto)",
+    )
+    parser.add_argument("--fps", type=int, default=30, help="output frame rate (default: 30)")
     parser.add_argument("--fit", choices=("pad", "crop"), default="pad")
     parser.add_argument(
         "--audio-mode", choices=("mix", "music", "original"), default="mix",
@@ -140,6 +204,10 @@ def main() -> int:
     )
     parser.add_argument("--music-volume", type=float, default=0.25)
     args = parser.parse_args()
+
+    if args.directory is None:
+        parser.print_help(sys.stderr)
+        return 2
 
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         parser.error("ffmpeg and ffprobe are required; install them with: brew install ffmpeg")
@@ -164,7 +232,7 @@ def main() -> int:
     if output in media:
         media.remove(output)
 
-    width, height = args.resolution
+    width, height = auto_resolution(media) if args.resolution is None else args.resolution
     output.parent.mkdir(parents=True, exist_ok=True)
     print(f"Found {len(media)} media files. Rendering {width}x{height} at {args.fps} fps...")
 

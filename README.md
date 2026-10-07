@@ -1,6 +1,6 @@
 # media-to-video
 
-將指定目錄內的照片與影片依檔名排序，合併輸出為單一 MP4。照片預設顯示 2 秒，影片保留原長度與聲音，並可加入循環播放的 MP3 背景音樂。
+將指定目錄內的照片與影片依檔名排序，合併輸出為單一 MP4。照片預設顯示 2 秒，影片保留原長度與聲音，並可加入循環播放的 MP3 背景音樂。程式會檢查所有素材解析度，自動選擇 4K、2K 或 1080p 輸出。
 
 ## 需求
 
@@ -15,11 +15,33 @@ brew install ffmpeg
 
 ## 使用方式
 
+直接執行但不帶參數時，會顯示完整參數與使用範例：
+
+```bash
+./media-to-video/media_to_video.py
+```
+
 ### 基本用法
 
 ```bash
 python3 media-to-video/media_to_video.py "/path/to/media" \
   --output "/path/to/output.mp4"
+```
+
+預設 `--resolution auto` 的選擇規則：
+
+1. 所有素材的長邊與短邊都至少為 3840×2160，輸出 4K。
+2. 否則，所有素材都至少為 2560×1440，輸出 2K/QHD。
+3. 否則輸出 1920×1080；較小素材會被放大。
+
+直式素材會交換長短邊判斷，例如 2160×3840 也視為 4K。採用全部素材中最低解析度決定輸出，可避免少數高解析度照片讓其他素材被大量放大。
+
+也可停用自動判斷，手動指定輸出解析度：
+
+```bash
+python3 media-to-video/media_to_video.py "/path/to/media" \
+  --output "/path/to/output.mp4" \
+  --resolution 3840x2160
 ```
 
 ### 加入背景音樂
@@ -73,7 +95,7 @@ python3 media-to-video/media_to_video.py \
 | `--output`, `-o` | `output.mp4` | 輸出 MP4 路徑 |
 | `--music` | 無 | MP3 或 ffmpeg 可讀取的音訊檔 |
 | `--photo-duration` | `2.0` | 每張照片顯示秒數 |
-| `--resolution` | `1920x1080` | 輸出解析度，寬高需為偶數 |
+| `--resolution` | `auto` | 自動選 4K/2K/1080p，或手動指定偶數尺寸 |
 | `--fps` | `30` | 輸出 frame rate |
 | `--fit pad` | `pad` | 保留完整畫面，不足處補黑邊 |
 | `--fit crop` | | 裁切畫面以填滿輸出尺寸 |
@@ -102,6 +124,7 @@ python3 media-to-video/media_to_video.py \
 ## 輸出行為
 
 - 素材依檔名排序。
+- 自動解析度以全部素材中最低的長邊與短邊決定，不會只看最高解析度素材。
 - 每個素材會先轉為一致的解析度、frame rate、H.264 視訊與 AAC stereo 音訊，再進行串接。
 - 沒有音軌的影片與照片會加入靜音音軌，避免串接失敗。
 - 預設使用黑邊保留直式照片與不同比例素材的完整畫面。
