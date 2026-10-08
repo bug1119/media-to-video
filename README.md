@@ -23,6 +23,8 @@ brew install ffmpeg
 
 ### 基本用法
 
+單目錄模式未指定 `--output` 時，使用素材目錄名稱作為檔名，輸出到目前工作目錄。例如讀取 `/path/to/202601`，預設輸出 `202601.mp4`。
+
 ```bash
 python3 media-to-video/media_to_video.py "/path/to/media" \
   --output "/path/to/output.mp4"
@@ -141,7 +143,7 @@ python3 media-to-video/media_to_video.py \
 | 參數 | 預設值 | 說明 |
 |---|---:|---|
 | `directory` | 必填 | 照片與影片所在目錄 |
-| `--output`, `-o` | 單目錄：`output.mp4`；批次：指定的父目錄 | 單目錄時為 MP4 路徑；批次時為輸出資料夾 |
+| `--output`, `-o` | 單目錄：`<素材目錄名稱>.mp4`；批次：指定的父目錄 | 單目錄時為 MP4 路徑，預設放在目前工作目錄；批次時為輸出資料夾 |
 | `--music` | 無 | 音訊檔，或每支影片隨機選一首的音樂資料夾 |
 | `--photo-duration` | `1.5` | 每張照片顯示秒數 |
 | `--resolution` | `auto` | 優先依影片選 4K/2K/1080p，無影片時依照片；或手動指定偶數尺寸 |

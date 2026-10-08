@@ -10,6 +10,19 @@ from media_to_video import main
 
 
 class BatchTest(unittest.TestCase):
+    def test_single_directory_defaults_to_directory_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / "202601"
+            directory.mkdir()
+            (directory / "photo.jpg").touch()
+            with (
+                patch.object(sys, "argv", ["media_to_video.py", str(directory)]),
+                patch("media_to_video.shutil.which", return_value="ffmpeg"),
+                patch("media_to_video.render_directory") as render,
+            ):
+                self.assertEqual(main(), 0)
+            self.assertEqual(render.call_args.args[1], Path("202601.mp4").resolve())
+
     def test_subdirectories_produce_separate_outputs_and_skip_empty_folders(self):
         for custom_output in (False, True):
             with self.subTest(custom_output=custom_output), tempfile.TemporaryDirectory() as temp:

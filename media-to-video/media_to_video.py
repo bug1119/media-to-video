@@ -268,7 +268,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--output", "-o", type=Path,
-        help="單目錄時為影片路徑（預設：output.mp4）；有子目錄時為輸出資料夾（預設：指定的父目錄）",
+        help="單目錄時為影片路徑（預設：目前工作目錄下的 <素材目錄名稱>.mp4）；有子目錄時為輸出資料夾（預設：指定的父目錄）",
     )
     parser.add_argument(
         "--music", type=Path,
@@ -338,7 +338,7 @@ def main() -> int:
         key=lambda path: path.name.casefold(),
     )
     if not subdirectories:
-        output = requested_output or Path("output.mp4").resolve()
+        output = requested_output or Path(f"{directory.name}.mp4").resolve()
         media = collect_media(directory, output)
         if not media:
             parser.error(f"no supported photos or videos found in {directory}")
