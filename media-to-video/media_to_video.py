@@ -263,12 +263,24 @@ def parse_resolution(value: str) -> tuple[int, int] | None:
 
 
 def directory_date(name: str) -> date | None:
-    match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})|(\d{4})-(\d{2})-(\d{2})", name)
+    match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})\d*|(\d{4})-(\d{2})-(\d{2})", name)
     if not match:
         return None
     parts = match.groups()[:3] if match.group(1) else match.groups()[3:]
     try:
         return date(*(int(part) for part in parts))
+    except ValueError:
+        return None
+
+
+def directory_group_date(name: str, mode: str) -> date | None:
+    if mode != "month":
+        return directory_date(name)
+    match = re.match(r"^(\d{4})-?(\d{2})", name)
+    if not match:
+        return None
+    try:
+        return date(int(match.group(1)), int(match.group(2)), 1)
     except ValueError:
         return None
 
@@ -487,7 +499,7 @@ def execute() -> int:
         parser.error(f"not a directory: {directory}")
     music_path = args.music.expanduser().resolve() if args.music else None
     custom_log = args.log_file.expanduser().resolve() if args.log_file else None
-    selected_date = directory_date(directory.name) if args.date_group != "none" else None
+    selected_date = directory_group_date(directory.name, args.date_group) if args.date_group != "none" else None
     subdirectories = sorted(
         (path for path in directory.iterdir()
          if path.is_dir() and path.resolve() not in (
@@ -499,9 +511,9 @@ def execute() -> int:
         group_name = date_group_name(selected_date, args.date_group)
         subdirectories = sorted(
             (path for path in directory.parent.iterdir()
-             if path.is_dir() and (day := directory_date(path.name))
+             if path.is_dir() and (day := directory_group_date(path.name, args.date_group))
              and date_group_name(day, args.date_group) == group_name),
-            key=lambda path: (directory_date(path.name), path.name.casefold()),
+            key=lambda path: (directory_date(path.name) or directory_group_date(path.name, args.date_group), path.name.casefold()),
         )
     output_name = date_group_name(selected_date, args.date_group) if selected_date else directory.name
     output = requested_output or Path(f"{output_name}.mp4").resolve()
@@ -569,7 +581,7 @@ def execute() -> int:
     existing_count = 0
     groups = {}
     for child in subdirectories:
-        day = directory_date(child.name)
+        day = directory_group_date(child.name, args.date_group)
         key = (args.date_group, date_group_name(day, args.date_group)) if day and args.date_group != "none" else ("directory", child.name)
         groups.setdefault(key, []).append(child)
     for (kind, name), children in groups.items():
@@ -580,7 +592,7 @@ def execute() -> int:
             existing_count += 1
             continue
         if kind != "directory":
-            children.sort(key=lambda path: (directory_date(path.name), path.name.casefold()))
+            children.sort(key=lambda path: (directory_date(path.name) or directory_group_date(path.name, kind), path.name.casefold()))
             report(f"日期合併（{kind}）：{name}，共 {len(children)} 個日期目錄，只使用照片。")
         media = [item for child in children
                  for item in collect_media(child, output, photos_only=kind != "directory")]

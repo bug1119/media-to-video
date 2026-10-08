@@ -23,7 +23,7 @@ class LoggingTest(unittest.TestCase):
                 destination = root / "rendered"
                 output = destination if batch else destination / "renamed.mp4"
                 with (
-                    patch.object(sys, "argv", ["media_to_video.py", str(media), "--output", str(output)]),
+                    patch.object(sys, "argv", ["media_to_video.py", str(media), "--output", str(output), "--date-group", "none"]),
                     patch("media_to_video.shutil.which", return_value="ffmpeg"),
                     patch("media_to_video.render_directory", return_value=(1, 0)),
                     contextlib.redirect_stdout(io.StringIO()),
