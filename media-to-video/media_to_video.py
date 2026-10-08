@@ -182,6 +182,53 @@ def concat_segments(segments: list[Path], output: Path, workdir: Path) -> None:
     ])
 
 
+def media_duration(path: Path) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+        check=True, capture_output=True, text=True,
+    )
+    duration = float(json.loads(result.stdout)["format"]["duration"])
+    if not 0 < duration < float("inf"):
+        raise ValueError(f"invalid duration: {path}")
+    return duration
+
+
+def build_music_playlist(source: Path, first: Path, tracks: list[Path], workdir: Path) -> Path:
+    target = media_duration(source)
+    playlist = []
+    elapsed = 0.0
+    normalized = {}
+    previous = None
+    while elapsed < target:
+        remaining = [track for track in tracks if track != first] if not playlist else list(tracks)
+        random.shuffle(remaining)
+        cycle = [first, *remaining] if not playlist else remaining
+        if len(cycle) > 1 and cycle[0] == previous:
+            cycle[0], cycle[1] = cycle[1], cycle[0]
+        for track in cycle:
+            if track not in normalized:
+                audio = workdir / f"music-{len(normalized):06d}.wav"
+                run([
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(track),
+                    "-vn", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(audio),
+                ])
+                normalized[track] = (audio, media_duration(audio))
+            audio, duration = normalized[track]
+            report(f"背景音樂接續：{track}（起始 {elapsed:.2f} 秒）")
+            playlist.append(audio)
+            elapsed += duration
+            previous = track
+            if elapsed >= target:
+                break
+    manifest = workdir / "music-playlist.txt"
+    def quote(path: Path) -> str:
+        return path.as_posix().replace("'", "'\\''")
+    manifest.write_text(
+        "".join(f"file '{quote(path)}'\n" for path in playlist), encoding="utf-8",
+    )
+    return manifest
+
+
 def add_music(source: Path, music: Path, output: Path, mode: str, volume: float) -> None:
     if mode == "music":
         audio_filter = f"[1:a]volume={volume}[music]"
@@ -192,9 +239,11 @@ def add_music(source: Path, music: Path, output: Path, mode: str, volume: float)
             "[original][music]amix=inputs=2:duration=first:dropout_transition=2[audio]"
         )
         audio_map = "[audio]"
+    music_input = (["-f", "concat", "-safe", "0", "-i", str(music)] if music.suffix == ".txt"
+                   else ["-stream_loop", "-1", "-i", str(music)])
     run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
-        "-stream_loop", "-1", "-i", str(music), "-filter_complex", audio_filter,
+        *music_input, "-filter_complex", audio_filter,
         "-map", "0:v:0", "-map", audio_map, "-c:v", "copy",
         "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
         str(output),
@@ -340,6 +389,8 @@ def render_directory(
         joined = workdir / "joined.mp4"
         concat_segments(segments, joined, workdir)
         if music:
+            if len(args.music_files) > 1:
+                music = build_music_playlist(joined, music, args.music_files, workdir)
             add_music(
                 joined, music, output,
                 args.audio_mode, args.music_volume,
@@ -393,7 +444,7 @@ def execute() -> int:
     )
     parser.add_argument(
         "--music", type=Path, default=DEFAULT_MUSIC_DIRECTORY,
-        help="背景音樂檔或資料夾；每支影片隨機選一首，不遞迴子目錄（預設：/Volumes/photo/picture/YouTube-Audio-Library，不存在時略過）",
+        help="背景音樂檔或資料夾；資料夾隨機接續播放不同曲目，不遞迴子目錄（預設：/Volumes/photo/picture/YouTube-Audio-Library，不存在時略過）",
     )
     parser.add_argument(
         "--photo-duration", type=float, default=1.5, help="每張照片的顯示秒數（預設：1.5）",

@@ -57,6 +57,12 @@ class RenderIntegrationTest(unittest.TestCase):
                  "-t", "0.2", str(music / "tone.mp3")],
                 check=True, capture_output=True,
             )
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
+                 "-t", "0.3", str(music / "second.wav")],
+                check=True, capture_output=True,
+            )
             for name, color in (("album-a", "red"), ("album-b", "blue")):
                 album = root / name
                 album.mkdir()

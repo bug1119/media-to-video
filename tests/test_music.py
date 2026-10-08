@@ -63,11 +63,13 @@ class MusicTest(unittest.TestCase):
                 patch("media_to_video.dimensions", return_value=(320, 180)),
                 patch("media_to_video.concat_segments"),
                 patch("media_to_video.add_music") as add,
+                patch("media_to_video.build_music_playlist", side_effect=lambda source, first, tracks, workdir: first) as playlist,
                 patch("media_to_video.random.choice", side_effect=tracks) as choose,
                 contextlib.redirect_stdout(summary),
             ):
                 self.assertEqual(main(), 0)
             self.assertEqual(choose.call_count, 2)
+            self.assertEqual(playlist.call_count, 2)
             for call in choose.call_args_list:
                 self.assertEqual(call.args[0], tracks)
             self.assertEqual([call.args[1] for call in add.call_args_list], tracks)
