@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -176,6 +177,7 @@ def parse_resolution(value: str) -> tuple[int, int] | None:
 
 
 def main() -> int:
+    started = time.perf_counter()
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -262,6 +264,9 @@ def main() -> int:
     if output in media:
         media.remove(output)
 
+    photo_count = sum(path.suffix.lower() in PHOTO_EXTENSIONS for path in media)
+    video_count = len(media) - photo_count
+
     width, height = auto_resolution(media) if args.resolution is None else args.resolution
     output.parent.mkdir(parents=True, exist_ok=True)
     print(
@@ -299,6 +304,8 @@ def main() -> int:
             shutil.copy2(joined, output)
 
     print(f"Created: {output}")
+    print(f"合併完成：{photo_count} 張照片、{video_count} 部影片，共 {len(media)} 個素材。")
+    print(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
     return 0
 
 

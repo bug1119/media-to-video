@@ -18,6 +18,8 @@ class RenderIntegrationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             output = directory / "output.mp4"
+            output.touch()
+            summary = io.StringIO()
 
             def ffmpeg(*args):
                 return subprocess.run(
@@ -43,9 +45,13 @@ class RenderIntegrationTest(unittest.TestCase):
                     "media_to_video.py", temp, "--output", str(output),
                     "--resolution", "320x180", "--photo-duration", "1",
                 ]),
-                contextlib.redirect_stdout(io.StringIO()),
+                patch("media_to_video.time.perf_counter", side_effect=[100.0, 102.5]),
+                contextlib.redirect_stdout(summary),
             ):
                 self.assertEqual(main(), 0)
+
+            self.assertIn("合併完成：1 張照片、2 部影片，共 3 個素材。", summary.getvalue())
+            self.assertIn("總執行時間：2.50 秒。", summary.getvalue())
 
             probe = subprocess.run(
                 ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(output)],
