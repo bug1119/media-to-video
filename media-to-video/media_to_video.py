@@ -404,6 +404,10 @@ def execute() -> int:
     LOGGER.setLevel(logging.INFO)
     report(f"執行 log：{log_file}")
     LOGGER.info("執行參數：%s", vars(args))
+    if not subdirectories and output.is_file():
+        report(f"跳過：{directory}（輸出影片已存在：{output}）")
+        report(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
+        return 0
     args.music_files = []
     if music_path and args.audio_mode != "original":
         if music_path.is_file():
@@ -430,14 +434,23 @@ def execute() -> int:
         return 0
 
     jobs = []
+    existing_count = 0
     for child in subdirectories:
         output = output_directory / f"{child.name}.mp4"
+        if output.is_file():
+            report(f"跳過：{child}（輸出影片已存在：{output}）")
+            existing_count += 1
+            continue
         media = collect_media(child, output)
         if media:
             jobs.append((child, media, output))
         else:
             report(f"跳過：{child}（沒有支援或符合合併條件的照片或影片）")
     if not jobs:
+        if existing_count:
+            report(f"批次完成：輸出 0 支影片，{existing_count} 個目錄的輸出影片已存在。")
+            report(f"整批執行時間：{time.perf_counter() - started:.2f} 秒。")
+            return 0
         parser.error("所有子目錄都沒有支援或符合合併條件的照片或影片")
 
     total_photos = total_videos = 0

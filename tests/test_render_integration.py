@@ -79,7 +79,6 @@ class RenderIntegrationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             output = directory / "output.mp4"
-            output.touch()
             summary = io.StringIO()
 
             def ffmpeg(*args):
