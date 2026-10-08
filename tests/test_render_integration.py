@@ -17,6 +17,14 @@ class RenderIntegrationTest(unittest.TestCase):
     def test_batch_outputs_each_album_with_default_photo_duration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            music = root / "music"
+            music.mkdir()
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                 "-t", "0.2", str(music / "tone.mp3")],
+                check=True, capture_output=True,
+            )
             for name, color in (("album-a", "red"), ("album-b", "blue")):
                 album = root / name
                 album.mkdir()
@@ -28,7 +36,9 @@ class RenderIntegrationTest(unittest.TestCase):
                 )
             summary = io.StringIO()
             with (
-                patch.object(sys, "argv", ["media_to_video.py", temp, "--resolution", "320x180"]),
+                patch.object(sys, "argv", [
+                    "media_to_video.py", temp, "--resolution", "320x180", "--music", str(music),
+                ]),
                 contextlib.redirect_stdout(summary),
             ):
                 self.assertEqual(main(), 0)
@@ -39,6 +49,13 @@ class RenderIntegrationTest(unittest.TestCase):
                     check=True, capture_output=True, text=True,
                 )
                 self.assertAlmostEqual(float(json.loads(probe.stdout)["format"]["duration"]), 1.5, delta=0.1)
+                audio = subprocess.run(
+                    ["ffmpeg", "-v", "error", "-ss", "1", "-i", str(root / f"{name}.mp4"),
+                     "-t", "0.1", "-vn", "-f", "s16le", "pipe:1"],
+                    check=True, capture_output=True,
+                ).stdout
+                self.assertTrue(audio)
+                self.assertTrue(any(audio), "Looping background music must remain audible")
             self.assertIn("批次完成：輸出 2 支影片，合併 2 張照片、0 部影片，共 2 個素材。", summary.getvalue())
 
     def test_parallel_photos_and_videos_produce_ordered_playable_output(self):

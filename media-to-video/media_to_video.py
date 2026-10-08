@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from pathlib import Path
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif", ".wma"}
 RESOLUTION_TIERS = (
     ("4K", 3840, 2160),
     ("2K", 2560, 1440),
@@ -192,6 +194,9 @@ def render_directory(
 ) -> tuple[int, int]:
     photo_count = sum(path.suffix.lower() in PHOTO_EXTENSIONS for path in media)
     video_count = len(media) - photo_count
+    music = random.choice(args.music_files) if args.music_files else None
+    if music:
+        print(f"背景音樂：{music}")
 
     width, height = auto_resolution(media) if args.resolution is None else args.resolution
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -221,9 +226,9 @@ def render_directory(
 
         joined = workdir / "joined.mp4"
         concat_segments(segments, joined, workdir)
-        if args.music and args.audio_mode != "original":
+        if music:
             add_music(
-                joined, args.music.expanduser().resolve(), output,
+                joined, music, output,
                 args.audio_mode, args.music_volume,
             )
         else:
@@ -266,7 +271,8 @@ def main() -> int:
         help="單目錄時為影片路徑（預設：output.mp4）；有子目錄時為輸出資料夾（預設：指定的父目錄）",
     )
     parser.add_argument(
-        "--music", type=Path, help="背景音樂路徑，可使用 MP3 或其他 ffmpeg 支援的音訊格式（選填）",
+        "--music", type=Path,
+        help="背景音樂檔或資料夾；資料夾內每支影片隨機選一首音樂，不遞迴子目錄（選填）",
     )
     parser.add_argument(
         "--photo-duration", type=float, default=1.5, help="每張照片的顯示秒數（預設：1.5）",
@@ -307,15 +313,28 @@ def main() -> int:
     requested_output = args.output.expanduser().resolve() if args.output else None
     if not directory.is_dir():
         parser.error(f"not a directory: {directory}")
-    if args.music and not args.music.expanduser().is_file():
-        parser.error(f"music file not found: {args.music}")
+    music_path = args.music.expanduser().resolve() if args.music else None
+    args.music_files = []
+    if music_path and args.audio_mode != "original":
+        if music_path.is_file():
+            args.music_files = [music_path]
+        elif music_path.is_dir():
+            args.music_files = sorted(
+                (path for path in music_path.iterdir() if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS),
+                key=lambda path: path.name.casefold(),
+            )
+            if not args.music_files:
+                parser.error(f"音樂資料夾內沒有支援的音訊檔：{music_path}")
+        else:
+            parser.error(f"找不到背景音樂檔或資料夾：{music_path}")
     if args.photo_duration <= 0 or args.fps <= 0 or args.music_volume < 0:
         parser.error("durations/FPS must be positive and music volume cannot be negative")
     if args.workers <= 0 or args.threads <= 0:
         parser.error("--workers 與 --threads 必須為正整數")
 
     subdirectories = sorted(
-        (path for path in directory.iterdir() if path.is_dir() and path.resolve() != requested_output),
+        (path for path in directory.iterdir()
+         if path.is_dir() and path.resolve() not in (requested_output, music_path)),
         key=lambda path: path.name.casefold(),
     )
     if not subdirectories:
