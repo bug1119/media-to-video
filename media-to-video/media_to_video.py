@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import random
 import shutil
 import subprocess
@@ -18,15 +19,34 @@ from pathlib import Path
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif", ".wma"}
+MAX_VIDEO_BYTES = 200_000_000
+MAX_VIDEO_COUNT = 10
 RESOLUTION_TIERS = (
     ("4K", 3840, 2160),
     ("2K", 2560, 1440),
     ("1080p", 1920, 1080),
 )
+LOGGER = logging.getLogger(__name__)
+
+
+def report(message: str) -> None:
+    print(message)
+    LOGGER.info(message)
+
+
+class ArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        LOGGER.error(message)
+        super().error(message)
 
 
 def run(command: list[str]) -> None:
-    subprocess.run(command, check=True)
+    LOGGER.info("執行指令：%s", command)
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.stderr:
+        LOGGER.log(logging.ERROR if result.returncode else logging.INFO, result.stderr.rstrip())
+        print(result.stderr, end="", file=sys.stderr)
+    result.check_returncode()
 
 
 def has_audio(path: Path) -> bool:
@@ -68,14 +88,14 @@ def auto_resolution(media: list[Path]) -> tuple[int, int]:
 
     for label, width, height in RESOLUTION_TIERS:
         if minimum_long >= width and minimum_short >= height:
-            print(
+            report(
                 f"Auto resolution: {label} ({width}x{height}); "
                 f"lowest {source_type} source bounds are {minimum_long}x{minimum_short}."
             )
             return width, height
 
     width, height = RESOLUTION_TIERS[-1][1:]
-    print(
+    report(
         f"Auto resolution: 1080p ({width}x{height}); lowest {source_type} source bounds are "
         f"{minimum_long}x{minimum_short}, so smaller sources will be upscaled."
     )
@@ -179,7 +199,7 @@ def parse_resolution(value: str) -> tuple[int, int] | None:
 
 
 def collect_media(directory: Path, output: Path) -> list[Path]:
-    return sorted(
+    candidates = sorted(
         (
             path for path in directory.iterdir()
             if path.is_file() and path.suffix.lower() in PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
@@ -187,6 +207,22 @@ def collect_media(directory: Path, output: Path) -> list[Path]:
         ),
         key=lambda path: path.name.casefold(),
     )
+    video_count = sum(path.suffix.lower() in VIDEO_EXTENSIONS for path in candidates)
+    media = []
+    for path in candidates:
+        if path.suffix.lower() in VIDEO_EXTENSIONS:
+            reasons = []
+            if video_count > MAX_VIDEO_COUNT:
+                reasons.append(f"目錄內有 {video_count} 部影片，超過 {MAX_VIDEO_COUNT} 部")
+            if path.name.casefold().startswith("video"):
+                reasons.append("檔名以 video 開頭")
+            if path.stat().st_size > MAX_VIDEO_BYTES:
+                reasons.append("檔案大於 200 MB")
+            if reasons:
+                report(f"排除影片：{path}（{'；'.join(reasons)}）")
+                continue
+        media.append(path)
+    return media
 
 
 def render_directory(
@@ -196,11 +232,11 @@ def render_directory(
     video_count = len(media) - photo_count
     music = random.choice(args.music_files) if args.music_files else None
     if music:
-        print(f"背景音樂：{music}")
+        report(f"背景音樂：{music}")
 
     width, height = auto_resolution(media) if args.resolution is None else args.resolution
     output.parent.mkdir(parents=True, exist_ok=True)
-    print(
+    report(
         f"Found {len(media)} media files. Rendering {width}x{height} at {args.fps} fps "
         f"with {args.workers} workers and {args.threads} encoding threads per worker..."
     )
@@ -211,7 +247,7 @@ def render_directory(
         def render_segment(item: tuple[int, Path]) -> Path:
             index, source = item
             segment = workdir / f"segment-{index:06d}.mp4"
-            print(f"[{index}/{len(media)}] {source.name}")
+            report(f"[{index}/{len(media)}] {source.name}")
             if source.suffix.lower() in PHOTO_EXTENSIONS:
                 render_photo(
                     source, segment, args.photo_duration, width, height, args.fps, args.fit,
@@ -234,15 +270,15 @@ def render_directory(
         else:
             shutil.copy2(joined, output)
 
-    print(f"Created: {output}")
-    print(f"合併完成：{photo_count} 張照片、{video_count} 部影片，共 {len(media)} 個素材。")
-    print(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
+    report(f"Created: {output}")
+    report(f"合併完成：{photo_count} 張照片、{video_count} 部影片，共 {len(media)} 個素材。")
+    report(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
     return photo_count, video_count
 
 
-def main() -> int:
+def execute() -> int:
     started = time.perf_counter()
-    parser = argparse.ArgumentParser(
+    parser = ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,
@@ -263,6 +299,10 @@ def main() -> int:
 """,
     )
     parser.add_argument("-h", "--help", action="help", help="顯示此說明訊息並結束")
+    parser.add_argument(
+        "--log-file", type=Path,
+        help="執行 log 路徑，包含時間戳記與錯誤，同名檔案追加紀錄（預設：輸出影片資料夾內的 <素材目錄名稱>.log）",
+    )
     parser.add_argument(
         "directory", nargs="?", type=Path, help="包含照片與影片的資料夾",
     )
@@ -314,6 +354,34 @@ def main() -> int:
     if not directory.is_dir():
         parser.error(f"not a directory: {directory}")
     music_path = args.music.expanduser().resolve() if args.music else None
+    custom_log = args.log_file.expanduser().resolve() if args.log_file else None
+    subdirectories = sorted(
+        (path for path in directory.iterdir()
+         if path.is_dir() and path.resolve() not in (
+             requested_output, music_path, custom_log.parent if custom_log else None,
+         )),
+        key=lambda path: path.name.casefold(),
+    )
+    output = requested_output or Path(f"{directory.name}.mp4").resolve()
+    output_directory = (requested_output or directory) if subdirectories else output.parent
+    if subdirectories:
+        if output_directory.exists() and not output_directory.is_dir():
+            parser.error("批次模式的 --output 必須是輸出資料夾")
+        if not output_directory.exists() and output_directory.suffix.lower() == ".mp4":
+            parser.error("批次模式的 --output 請指定資料夾，而非 .mp4 檔案")
+    log_file = custom_log or output_directory / f"{directory.name}.log"
+    if log_file.suffix.lower() in PHOTO_EXTENSIONS | VIDEO_EXTENSIONS | AUDIO_EXTENSIONS:
+        parser.error("--log-file 請指定 log 檔案，不可使用素材或音訊副檔名")
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_file, encoding="utf-8")
+    except OSError as error:
+        parser.error(f"無法建立 log 檔：{error}")
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    LOGGER.addHandler(handler)
+    LOGGER.setLevel(logging.INFO)
+    report(f"執行 log：{log_file}")
+    LOGGER.info("執行參數：%s", vars(args))
     args.music_files = []
     if music_path and args.audio_mode != "original":
         if music_path.is_file():
@@ -332,24 +400,12 @@ def main() -> int:
     if args.workers <= 0 or args.threads <= 0:
         parser.error("--workers 與 --threads 必須為正整數")
 
-    subdirectories = sorted(
-        (path for path in directory.iterdir()
-         if path.is_dir() and path.resolve() not in (requested_output, music_path)),
-        key=lambda path: path.name.casefold(),
-    )
     if not subdirectories:
-        output = requested_output or Path(f"{directory.name}.mp4").resolve()
         media = collect_media(directory, output)
         if not media:
-            parser.error(f"no supported photos or videos found in {directory}")
+            parser.error(f"no eligible photos or videos found in {directory} after filtering")
         render_directory(media, output, args, started)
         return 0
-
-    output_directory = requested_output or directory
-    if output_directory.exists() and not output_directory.is_dir():
-        parser.error("批次模式的 --output 必須是輸出資料夾")
-    if not output_directory.exists() and output_directory.suffix.lower() == ".mp4":
-        parser.error("批次模式的 --output 請指定資料夾，而非 .mp4 檔案")
 
     jobs = []
     for child in subdirectories:
@@ -358,22 +414,41 @@ def main() -> int:
         if media:
             jobs.append((child, media, output))
         else:
-            print(f"跳過：{child}（沒有支援的照片或影片）")
+            report(f"跳過：{child}（沒有支援或符合合併條件的照片或影片）")
     if not jobs:
-        parser.error("所有子目錄都沒有支援的照片或影片")
+        parser.error("所有子目錄都沒有支援或符合合併條件的照片或影片")
 
     total_photos = total_videos = 0
     for index, (child, media, output) in enumerate(jobs, 1):
-        print(f"\n[{index}/{len(jobs)}] 處理子目錄：{child}")
+        report(f"\n[{index}/{len(jobs)}] 處理子目錄：{child}")
         photos, videos = render_directory(media, output, args, time.perf_counter())
         total_photos += photos
         total_videos += videos
-    print(
+    report(
         f"\n批次完成：輸出 {len(jobs)} 支影片，合併 {total_photos} 張照片、"
         f"{total_videos} 部影片，共 {total_photos + total_videos} 個素材。"
     )
-    print(f"整批執行時間：{time.perf_counter() - started:.2f} 秒。")
+    report(f"整批執行時間：{time.perf_counter() - started:.2f} 秒。")
     return 0
+
+
+def main() -> int:
+    previous_handlers = set(LOGGER.handlers)
+    try:
+        return execute()
+    except subprocess.CalledProcessError as error:
+        if error.stderr:
+            LOGGER.error("外部指令錯誤：%s", error.stderr)
+        LOGGER.exception("執行失敗")
+        raise
+    except Exception:
+        LOGGER.exception("執行失敗")
+        raise
+    finally:
+        for handler in list(LOGGER.handlers):
+            if handler not in previous_handlers:
+                LOGGER.removeHandler(handler)
+                handler.close()
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ class BatchTest(unittest.TestCase):
                 for name in ("b", "a", "empty", "nested-only"):
                     (root / name).mkdir()
                 (root / "a" / "photo.JPG").touch()
-                (root / "b" / "video.mp4").touch()
+                (root / "b" / "clip.mp4").touch()
                 (root / "root.jpg").touch()
                 (root / "nested-only" / "deeper").mkdir()
                 (root / "nested-only" / "deeper" / "photo.jpg").touch()
@@ -49,7 +49,7 @@ class BatchTest(unittest.TestCase):
                 ):
                     self.assertEqual(main(), 0)
                 self.assertEqual(render.call_count, 2)
-                for call, name, filename in zip(render.call_args_list, ("a", "b"), ("photo.JPG", "video.mp4")):
+                for call, name, filename in zip(render.call_args_list, ("a", "b"), ("photo.JPG", "clip.mp4")):
                     media, output, args, started = call.args
                     self.assertEqual(media, [root / name / filename])
                     self.assertEqual(output, output_directory / f"{name}.mp4")
