@@ -16,8 +16,8 @@ class ParallelTest(unittest.TestCase):
         for options, threads in (([], 4), (["--workers", "2", "--threads", "3"], 3)):
             with self.subTest(options=options), tempfile.TemporaryDirectory() as temp:
                 directory = Path(temp)
-                (directory / "01.jpg").touch()
-                (directory / "02.mp4").touch()
+                (directory / "01.jpg").write_bytes(b"fixture")
+                (directory / "02.mp4").write_bytes(b"fixture")
                 barrier = threading.Barrier(2, timeout=5)
                 second_finished = threading.Event()
 
@@ -37,6 +37,7 @@ class ParallelTest(unittest.TestCase):
                     patch.object(sys, "argv", argv),
                     patch("media_to_video.shutil.which", return_value="ffmpeg"),
                     patch("media_to_video.render_photo", side_effect=photo),
+                    patch("media_to_video.dimensions", return_value=(320, 180)),
                     patch("media_to_video.render_video", side_effect=video),
                     patch("media_to_video.concat_segments") as concat,
                     patch("media_to_video.shutil.copy2"),
@@ -65,7 +66,7 @@ class ParallelTest(unittest.TestCase):
 
     def test_render_failure_prevents_concatenation_and_cleans_temp(self):
         with tempfile.TemporaryDirectory() as temp:
-            (Path(temp) / "01.jpg").touch()
+            (Path(temp) / "01.jpg").write_bytes(b"fixture")
             outputs = []
 
             def fail(source, output, *args):
@@ -76,11 +77,11 @@ class ParallelTest(unittest.TestCase):
                 patch.object(sys, "argv", ["media_to_video.py", temp, "--resolution", "320x180"]),
                 patch("media_to_video.shutil.which", return_value="ffmpeg"),
                 patch("media_to_video.render_photo", side_effect=fail),
+                patch("media_to_video.dimensions", return_value=(320, 180)),
                 patch("media_to_video.concat_segments") as concat,
                 contextlib.redirect_stdout(io.StringIO()),
-                self.assertRaises(subprocess.CalledProcessError),
             ):
-                main()
+                self.assertEqual(main(), 0)
             concat.assert_not_called()
             self.assertFalse(outputs[0].parent.exists())
 

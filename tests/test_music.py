@@ -52,7 +52,7 @@ class MusicTest(unittest.TestCase):
             (music / "nested" / "ignored.mp3").touch()
             for name in ("album-a", "album-b"):
                 (root / name).mkdir()
-                (root / name / "photo.jpg").touch()
+                (root / name / "photo.jpg").write_bytes(b"fixture")
             summary = io.StringIO()
             with (
                 patch.object(sys, "argv", [
@@ -60,6 +60,7 @@ class MusicTest(unittest.TestCase):
                 ]),
                 patch("media_to_video.shutil.which", return_value="ffmpeg"),
                 patch("media_to_video.render_photo"),
+                patch("media_to_video.dimensions", return_value=(320, 180)),
                 patch("media_to_video.concat_segments"),
                 patch("media_to_video.add_music") as add,
                 patch("media_to_video.random.choice", side_effect=tracks) as choose,
@@ -81,7 +82,7 @@ class MusicTest(unittest.TestCase):
         for mode in ("mix", "music", "original"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp).resolve()
-                (root / "photo.jpg").touch()
+                (root / "photo.jpg").write_bytes(b"fixture")
                 track = root / "music.mp3"
                 if mode != "original":
                     track.touch()
@@ -92,6 +93,7 @@ class MusicTest(unittest.TestCase):
                     ]),
                     patch("media_to_video.shutil.which", return_value="ffmpeg"),
                     patch("media_to_video.render_photo"),
+                    patch("media_to_video.dimensions", return_value=(320, 180)),
                     patch("media_to_video.concat_segments"),
                     patch("media_to_video.shutil.copy2") as copy,
                     patch("media_to_video.add_music") as add,

@@ -6,10 +6,46 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from media_to_video import directory_date, main
+from media_to_video import date_group_name, directory_date, main
 
 
 class MonthlyTest(unittest.TestCase):
+    def test_week_groups_cross_month_and_year_and_none_keeps_directories(self):
+        self.assertEqual(date_group_name(directory_date("20251229"), "week"), "2026-W01")
+        for mode in ("week", "none"):
+            for direct in (False, True):
+                with self.subTest(mode=mode, direct=direct), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp).resolve()
+                    source = root / "picture"
+                    source.mkdir()
+                    for name in ("20251229", "20260101", "20260105"):
+                        (source / name).mkdir()
+                        (source / name / "photo.jpg").write_bytes(b"fixture")
+                        (source / name / "clip.mp4").write_bytes(b"fixture")
+                    target = source / "20260101" if direct else source
+                    output = root / "result.mp4" if direct else root / "rendered"
+                    with (
+                        patch.object(sys, "argv", [
+                            "media_to_video.py", str(target), "--output", str(output),
+                            "--date-group", mode, "--audio-mode", "original",
+                        ]),
+                        patch("media_to_video.shutil.which", return_value="ffmpeg"),
+                        patch("media_to_video.render_directory", return_value=(1, 0)) as render,
+                        contextlib.redirect_stdout(io.StringIO()),
+                    ):
+                        self.assertEqual(main(), 0)
+                    if mode == "week":
+                        self.assertEqual(render.call_args_list[0].args[0], [
+                            source / day / "photo.jpg" for day in ("20251229", "20260101")
+                        ])
+                        self.assertEqual(render.call_count, 1 if direct else 2)
+                        self.assertEqual(render.call_args_list[0].args[1], output if direct else output / "2026-W01.mp4")
+                    else:
+                        self.assertEqual(render.call_count, 1 if direct else 3)
+                        self.assertEqual(len(render.call_args_list[0].args[0]), 2)
+                        if direct:
+                            self.assertTrue(all(path.parent == target for path in render.call_args.args[0]))
+
     def test_valid_calendar_dates_only(self):
         self.assertEqual(str(directory_date("20260101")), "2026-01-01")
         self.assertEqual(str(directory_date("2026-01-15")), "2026-01-15")

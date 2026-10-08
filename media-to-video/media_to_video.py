@@ -77,7 +77,8 @@ def dimensions(path: Path) -> tuple[int, int]:
     )
     streams = json.loads(result.stdout).get("streams", [])
     if not streams or not streams[0].get("width") or not streams[0].get("height"):
-        raise ValueError(f"cannot determine dimensions: {path}")
+        detail = f"; {result.stderr.strip()}" if result.stderr.strip() else ""
+        raise ValueError(f"cannot determine dimensions: {path}{detail}")
     return int(streams[0]["width"]), int(streams[0]["height"])
 
 
@@ -223,6 +224,13 @@ def directory_date(name: str) -> date | None:
         return None
 
 
+def date_group_name(day: date, mode: str) -> str:
+    if mode == "week":
+        year, week, _ = day.isocalendar()
+        return f"{year}-W{week:02d}"
+    return day.strftime("%Y%m")
+
+
 def collect_media(directory: Path, output: Path, photos_only: bool = False) -> list[Path]:
     extensions = PHOTO_EXTENSIONS if photos_only else PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
     candidates = sorted(
@@ -254,8 +262,6 @@ def collect_media(directory: Path, output: Path, photos_only: bool = False) -> l
 def render_directory(
     media: list[Path], output: Path, args: argparse.Namespace, started: float,
 ) -> tuple[int, int]:
-    photo_count = sum(path.suffix.lower() in PHOTO_EXTENSIONS for path in media)
-    video_count = len(media) - photo_count
     music = random.choice(args.music_files) if args.music_files else None
     if music:
         report(f"背景音樂：{music}")
@@ -263,16 +269,37 @@ def render_directory(
     with tempfile.TemporaryDirectory(prefix="media-to-video-") as temp:
         workdir = Path(temp)
 
-        def prepare_source(item: tuple[int, Path]) -> Path:
+        def prepare_source(item: tuple[int, Path]) -> Path | None:
             index, source = item
-            if source.suffix.lower() in PHOTO_EXTENSIONS - {".jpg", ".jpeg"}:
-                converted = workdir / f"photo-{index:06d}.jpg"
-                convert_photo_to_jpg(source, converted)
-                return converted
+            if source.stat().st_size == 0:
+                report(f"跳過素材：{source}（檔案大小為 0 bytes）")
+                return None
+            if source.suffix.lower() in PHOTO_EXTENSIONS:
+                try:
+                    prepared_source = source
+                    if source.suffix.lower() not in {".jpg", ".jpeg"}:
+                        prepared_source = workdir / f"photo-{index:06d}.jpg"
+                        convert_photo_to_jpg(source, prepared_source)
+                    dimensions(prepared_source)
+                    return prepared_source
+                except (ValueError, subprocess.CalledProcessError) as error:
+                    report(f"跳過壞圖：{source}（{error}）")
+                    if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+                        LOGGER.error("圖片錯誤：%s", error.stderr)
+                    return None
             return source
 
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
             prepared = list(executor.map(prepare_source, enumerate(media, 1)))
+
+        retained = [(original, prepared_source) for original, prepared_source in zip(media, prepared)
+                    if prepared_source is not None]
+        if not retained:
+            report("跳過目錄：沒有可合併的有效素材。")
+            report(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
+            return 0, 0
+        media = [original for original, _ in retained]
+        prepared = [prepared_source for _, prepared_source in retained]
 
         width, height = auto_resolution(prepared) if args.resolution is None else args.resolution
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -281,21 +308,34 @@ def render_directory(
             f"with {args.workers} workers and {args.threads} encoding threads per worker..."
         )
 
-        def render_segment(item: tuple[int, Path]) -> Path:
+        def render_segment(item: tuple[int, Path]) -> Path | None:
             index, source = item
             segment = workdir / f"segment-{index:06d}.mp4"
             report(f"[{index}/{len(media)}] {media[index - 1].name}")
             if source.suffix.lower() in PHOTO_EXTENSIONS:
-                render_photo(
-                    source, segment, args.photo_duration, width, height, args.fps, args.fit,
-                    args.threads,
-                )
+                try:
+                    render_photo(
+                        source, segment, args.photo_duration, width, height, args.fps, args.fit,
+                        args.threads,
+                    )
+                except subprocess.CalledProcessError as error:
+                    report(f"跳過壞圖：{media[index - 1]}（轉檔失敗：{error}）")
+                    return None
             else:
                 render_video(source, segment, width, height, args.fps, args.fit, args.threads)
             return segment
 
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
             segments = list(executor.map(render_segment, enumerate(prepared, 1)))
+
+        successful = [(source, segment) for source, segment in zip(media, segments) if segment is not None]
+        if not successful:
+            report("跳過目錄：沒有成功轉檔的素材。")
+            report(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
+            return 0, 0
+        segments = [segment for _, segment in successful]
+        photo_count = sum(source.suffix.lower() in PHOTO_EXTENSIONS for source, _ in successful)
+        video_count = len(successful) - photo_count
 
         joined = workdir / "joined.mp4"
         concat_segments(segments, joined, workdir)
@@ -308,7 +348,7 @@ def render_directory(
             shutil.copy2(joined, output)
 
     report(f"Created: {output}")
-    report(f"合併完成：{photo_count} 張照片、{video_count} 部影片，共 {len(media)} 個素材。")
+    report(f"合併完成：{photo_count} 張照片、{video_count} 部影片，共 {len(successful)} 個素材。")
     report(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
     return photo_count, video_count
 
@@ -337,6 +377,10 @@ def execute() -> int:
     )
     parser.add_argument("-h", "--help", action="help", help="顯示此說明訊息並結束")
     parser.add_argument(
+        "--date-group", choices=("month", "week", "none"), default="month",
+        help="日期目錄合併：month 按月；week 按 ISO 週（週一至週日）；none 不合併目錄（預設：month）",
+    )
+    parser.add_argument(
         "--log-file", type=Path,
         help="執行 log 路徑，包含時間戳記與錯誤，同名檔案追加紀錄（預設：輸出影片資料夾內的 <素材目錄名稱>.log）",
     )
@@ -345,7 +389,7 @@ def execute() -> int:
     )
     parser.add_argument(
         "--output", "-o", type=Path,
-        help="單目錄時為影片路徑（預設：<素材目錄名稱>.mp4）；日期目錄合併同月照片為 YYYYMM.mp4；父目錄批次時為輸出資料夾",
+        help="單目錄時為影片路徑；日期目錄依 --date-group 命名；父目錄批次時為輸出資料夾（預設：單目錄用目錄名稱，批次輸出至父目錄）",
     )
     parser.add_argument(
         "--music", type=Path, default=DEFAULT_MUSIC_DIRECTORY,
@@ -392,7 +436,7 @@ def execute() -> int:
         parser.error(f"not a directory: {directory}")
     music_path = args.music.expanduser().resolve() if args.music else None
     custom_log = args.log_file.expanduser().resolve() if args.log_file else None
-    selected_date = directory_date(directory.name)
+    selected_date = directory_date(directory.name) if args.date_group != "none" else None
     subdirectories = sorted(
         (path for path in directory.iterdir()
          if path.is_dir() and path.resolve() not in (
@@ -401,14 +445,14 @@ def execute() -> int:
         key=lambda path: path.name.casefold(),
     )
     if selected_date:
-        month = selected_date.strftime("%Y%m")
+        group_name = date_group_name(selected_date, args.date_group)
         subdirectories = sorted(
             (path for path in directory.parent.iterdir()
              if path.is_dir() and (day := directory_date(path.name))
-             and day.strftime("%Y%m") == month),
+             and date_group_name(day, args.date_group) == group_name),
             key=lambda path: (directory_date(path.name), path.name.casefold()),
         )
-    output_name = selected_date.strftime("%Y%m") if selected_date else directory.name
+    output_name = date_group_name(selected_date, args.date_group) if selected_date else directory.name
     output = requested_output or Path(f"{output_name}.mp4").resolve()
     batch = bool(subdirectories) and not selected_date
     output_directory = (requested_output or directory) if batch else output.parent
@@ -456,7 +500,7 @@ def execute() -> int:
         parser.error("--workers 與 --threads 必須為正整數")
 
     if selected_date:
-        report(f"月份合併：{output_name}，共 {len(subdirectories)} 個日期目錄，只使用照片。")
+        report(f"日期合併（{args.date_group}）：{output_name}，共 {len(subdirectories)} 個日期目錄，只使用照片。")
         media = [photo for child in subdirectories for photo in collect_media(child, output, photos_only=True)]
         if not media:
             parser.error(f"{output_name} 的日期目錄內沒有支援的照片")
@@ -475,20 +519,20 @@ def execute() -> int:
     groups = {}
     for child in subdirectories:
         day = directory_date(child.name)
-        key = ("month", day.strftime("%Y%m")) if day else ("directory", child.name)
+        key = (args.date_group, date_group_name(day, args.date_group)) if day and args.date_group != "none" else ("directory", child.name)
         groups.setdefault(key, []).append(child)
     for (kind, name), children in groups.items():
         output = output_directory / f"{name}.mp4"
-        label = f"月份 {name}" if kind == "month" else str(children[0])
+        label = f"日期分組 {name}" if kind != "directory" else str(children[0])
         if output.is_file():
             report(f"跳過：{label}（輸出影片已存在：{output}）")
             existing_count += 1
             continue
-        if kind == "month":
+        if kind != "directory":
             children.sort(key=lambda path: (directory_date(path.name), path.name.casefold()))
-            report(f"月份合併：{name}，共 {len(children)} 個日期目錄，只使用照片。")
+            report(f"日期合併（{kind}）：{name}，共 {len(children)} 個日期目錄，只使用照片。")
         media = [item for child in children
-                 for item in collect_media(child, output, photos_only=kind == "month")]
+                 for item in collect_media(child, output, photos_only=kind != "directory")]
         if media:
             jobs.append((label, media, output))
         else:
@@ -501,13 +545,15 @@ def execute() -> int:
         parser.error("所有子目錄都沒有支援或符合合併條件的照片或影片")
 
     total_photos = total_videos = 0
+    output_count = 0
     for index, (child, media, output) in enumerate(jobs, 1):
         report(f"\n[{index}/{len(jobs)}] 處理子目錄：{child}")
         photos, videos = render_directory(media, output, args, time.perf_counter())
         total_photos += photos
         total_videos += videos
+        output_count += bool(photos + videos)
     report(
-        f"\n批次完成：輸出 {len(jobs)} 支影片，合併 {total_photos} 張照片、"
+        f"\n批次完成：輸出 {output_count} 支影片，合併 {total_photos} 張照片、"
         f"{total_videos} 部影片，共 {total_photos + total_videos} 個素材。"
     )
     report(f"整批執行時間：{time.perf_counter() - started:.2f} 秒。")

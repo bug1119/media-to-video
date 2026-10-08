@@ -30,6 +30,21 @@ class RenderIntegrationTest(unittest.TestCase):
                 self.assertEqual(output.read_bytes()[:2], b"\xff\xd8")
                 self.assertEqual(dimensions(output), (320, 180))
                 self.assertTrue(source.exists())
+            (root / "broken.jpg").write_bytes(b"\xff\xd8\xff\xe1\xff\xffbroken")
+            (root / "empty.jpg").touch()
+            summary = io.StringIO()
+            with (
+                patch.object(sys, "argv", [
+                    "media_to_video.py", temp, "--output", str(root / "output.mp4"),
+                    "--resolution", "320x180", "--audio-mode", "original",
+                ]),
+                contextlib.redirect_stdout(summary),
+            ):
+                self.assertEqual(main(), 0)
+            self.assertTrue((root / "output.mp4").is_file())
+            self.assertIn("跳過壞圖", summary.getvalue())
+            self.assertIn("檔案大小為 0 bytes", summary.getvalue())
+            self.assertIn("合併完成：2 張照片、0 部影片", summary.getvalue())
 
     def test_batch_outputs_each_album_with_default_photo_duration(self):
         with tempfile.TemporaryDirectory() as temp:

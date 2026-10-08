@@ -35,7 +35,7 @@ class LoggingTest(unittest.TestCase):
     def test_default_log_records_progress_exclusions_summary_and_appends(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()
-            (root / "photo.jpg").touch()
+            (root / "photo.jpg").write_bytes(b"fixture")
             (root / "video-ignore.mp4").touch()
             log = root / f"{root.name}.log"
             for _ in range(2):
@@ -47,6 +47,7 @@ class LoggingTest(unittest.TestCase):
                     ]),
                     patch("media_to_video.shutil.which", return_value="ffmpeg"),
                     patch("media_to_video.render_photo"),
+                    patch("media_to_video.dimensions", return_value=(320, 180)),
                     patch("media_to_video.concat_segments"),
                     patch("media_to_video.shutil.copy2"),
                     contextlib.redirect_stdout(io.StringIO()),
@@ -64,25 +65,25 @@ class LoggingTest(unittest.TestCase):
             root = Path(temp)
             media = root / "media"
             media.mkdir()
-            (media / "photo.jpg").touch()
+            (media / "photo.jpg").write_bytes(b"fixture")
             log = root / "logs" / "run.log"
             with (
                 patch.object(sys, "argv", [
                     "media_to_video.py", str(media), "--resolution", "320x180", "--log-file", str(log),
                 ]),
                 patch("media_to_video.shutil.which", return_value="ffmpeg"),
+                patch("media_to_video.dimensions", return_value=(320, 180)),
                 patch("media_to_video.subprocess.run", return_value=subprocess.CompletedProcess(
                     ["ffmpeg"], 1, "", "encoding failed\n",
                 )),
                 contextlib.redirect_stdout(io.StringIO()),
                 contextlib.redirect_stderr(io.StringIO()),
-                self.assertRaises(subprocess.CalledProcessError),
             ):
-                main()
+                self.assertEqual(main(), 0)
             text = log.read_text(encoding="utf-8")
             self.assertIn("執行指令：", text)
             self.assertIn("encoding failed", text)
-            self.assertIn("執行失敗", text)
+            self.assertIn("跳過壞圖", text)
             self.assertNotIn("合併完成", text)
 
 

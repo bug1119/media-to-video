@@ -75,6 +75,21 @@ python3 media-to-video/media_to_video.py "/path/to/albums" \
 
 ### 日期目錄按月份合併
 
+使用 `--date-group` 選擇日期目錄分組方式：
+
+| 值 | 行為 | 輸出名稱範例 |
+|---|---|---|
+| `month`（預設） | 同月份照片合併 | `202601.mp4` |
+| `week` | 同 ISO 週照片合併，週一至週日，可跨月／跨年 | `2026-W04.mp4` |
+| `none` | 不合併日期目錄，各目錄獨立處理照片與符合條件的影片 | `20260121.mp4` |
+
+```bash
+python3 media-to-video/media_to_video.py "/path/to/picture" --date-group week
+python3 media-to-video/media_to_video.py "/path/to/picture" --date-group none
+```
+
+直接指定日期目錄時，`week` 會合併同層同週的照片；`none` 只處理指定目錄。週次及年份依 ISO 週曆判斷，例如 `20251229` 與 `20260101` 都屬於 `2026-W01`。
+
 日期目錄名稱支援有效的 `YYYYMMDD` 或 `YYYY-MM-DD`，例如 `20260101`、`2026-01-15`。指定其中一個日期目錄時，會讀取同一父目錄下、同月份所有日期目錄的照片，依日期再依檔名排序，合併為 `YYYYMM.mp4`（預設放在目前工作目錄）：
 
 ```bash
@@ -178,6 +193,7 @@ python3 media-to-video/media_to_video.py "/path/to/202601" \
 | 參數 | 預設值 | 說明 |
 |---|---:|---|
 | `directory` | 必填 | 照片與影片所在目錄 |
+| `--date-group` | `month` | 日期目錄按月、按週或不合併：`month` / `week` / `none` |
 | `--log-file` | 輸出影片資料夾內的 `<素材目錄名稱>.log` | 執行紀錄，包含時間戳記；同名檔案追加 |
 | `--output`, `-o` | 單目錄：`<素材目錄名稱>.mp4`；批次：指定的父目錄 | 單目錄時為 MP4 路徑，預設放在目前工作目錄；批次時為輸出資料夾 |
 | `--music` | `/Volumes/photo/picture/YouTube-Audio-Library/` | 音訊檔或隨機選曲資料夾；預設目錄不存在時略過 |
@@ -213,6 +229,10 @@ PNG、WebP、HEIC / HEIF 會先轉成暫存 JPG 再合併；JPG/JPEG 直接使�
 - WebM
 
 ## 輸出行為
+
+### 壞圖與空檔案
+
+大小為 0 bytes 的照片或影片會跳過。圖片若轉 JPG 失敗、無法取得寬高或影片轉檔失敗，會記錄原始檔名與原因並跳過，不中斷整批。手動指定解析度時仍會檢查圖片尺寸。原始檔案保留；完成統計只包含成功合併的素材，全部素材無效時不產生影片並繼續下一個目錄。
 
 ### 影片排除條件
 
