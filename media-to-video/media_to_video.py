@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -55,7 +56,10 @@ def dimensions(path: Path) -> tuple[int, int]:
 
 
 def auto_resolution(media: list[Path]) -> tuple[int, int]:
-    measured = [(path, dimensions(path)) for path in media]
+    videos = [path for path in media if path.suffix.lower() in VIDEO_EXTENSIONS]
+    sources = videos or media
+    source_type = "video" if videos else "photo"
+    measured = [(path, dimensions(path)) for path in sources]
     minimum_long = min(max(width, height) for _, (width, height) in measured)
     minimum_short = min(min(width, height) for _, (width, height) in measured)
 
@@ -63,13 +67,13 @@ def auto_resolution(media: list[Path]) -> tuple[int, int]:
         if minimum_long >= width and minimum_short >= height:
             print(
                 f"Auto resolution: {label} ({width}x{height}); "
-                f"lowest source bounds are {minimum_long}x{minimum_short}."
+                f"lowest {source_type} source bounds are {minimum_long}x{minimum_short}."
             )
             return width, height
 
     width, height = RESOLUTION_TIERS[-1][1:]
     print(
-        f"Auto resolution: 1080p ({width}x{height}); lowest source bounds are "
+        f"Auto resolution: 1080p ({width}x{height}); lowest {source_type} source bounds are "
         f"{minimum_long}x{minimum_short}, so smaller sources will be upscaled."
     )
     return width, height
@@ -91,13 +95,14 @@ def video_filter(width: int, height: int, fps: int, fit: str) -> str:
 
 def render_photo(
     source: Path, output: Path, duration: float, width: int, height: int, fps: int, fit: str,
+    threads: int = 4,
 ) -> None:
     run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-loop", "1", "-framerate", str(fps), "-i", str(source),
         "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
         "-t", str(duration), "-vf", video_filter(width, height, fps, fit),
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:v", "libx264", "-threads:v", str(threads), "-preset", "medium", "-crf", "20",
         "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
         str(output),
     ])
@@ -105,6 +110,7 @@ def render_photo(
 
 def render_video(
     source: Path, output: Path, width: int, height: int, fps: int, fit: str,
+    threads: int = 4,
 ) -> None:
     source_has_audio = has_audio(source)
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source)]
@@ -115,7 +121,7 @@ def render_video(
     command += [
         "-map", "0:v:0", "-map", "0:a:0" if source_has_audio else "1:a:0",
         "-vf", video_filter(width, height, fps, fit),
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:v", "libx264", "-threads:v", str(threads), "-preset", "medium", "-crf", "20",
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
         "-shortest", "-movflags", "+faststart", str(output),
     ]
@@ -203,9 +209,16 @@ def main() -> int:
     )
     parser.add_argument(
         "--resolution", type=parse_resolution, default=None,
-        help="輸出解析度：auto 自動選擇，或指定寬高皆為正偶數的尺寸，例如 3840x2160（預設：auto）",
+        help="輸出解析度：auto 優先依影片選擇 4K/2K/1080p，無影片時依照片；或指定正偶數尺寸，例如 3840x2160（預設：auto）",
     )
     parser.add_argument("--fps", type=int, default=30, help="輸出影片每秒影格數（預設：30）")
+    parser.add_argument(
+        "--workers", type=int, default=2, help="同時轉檔的檔案數，須為正整數（預設：2）",
+    )
+    parser.add_argument(
+        "--threads", type=int, default=4,
+        help="每個轉檔工作的 H.264 編碼執行緒數，須為正整數（預設：4）",
+    )
     parser.add_argument(
         "--fit", choices=("pad", "crop"), default="pad",
         help="畫面適配方式：pad 保留完整畫面並補黑邊；crop 裁切以填滿畫面（預設：pad）",
@@ -234,6 +247,8 @@ def main() -> int:
         parser.error(f"music file not found: {args.music}")
     if args.photo_duration <= 0 or args.fps <= 0 or args.music_volume < 0:
         parser.error("durations/FPS must be positive and music volume cannot be negative")
+    if args.workers <= 0 or args.threads <= 0:
+        parser.error("--workers 與 --threads 必須為正整數")
 
     media = sorted(
         (
@@ -249,21 +264,29 @@ def main() -> int:
 
     width, height = auto_resolution(media) if args.resolution is None else args.resolution
     output.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Found {len(media)} media files. Rendering {width}x{height} at {args.fps} fps...")
+    print(
+        f"Found {len(media)} media files. Rendering {width}x{height} at {args.fps} fps "
+        f"with {args.workers} workers and {args.threads} encoding threads per worker..."
+    )
 
     with tempfile.TemporaryDirectory(prefix="media-to-video-") as temp:
         workdir = Path(temp)
-        segments = []
-        for index, source in enumerate(media, 1):
+
+        def render_segment(item: tuple[int, Path]) -> Path:
+            index, source = item
             segment = workdir / f"segment-{index:06d}.mp4"
             print(f"[{index}/{len(media)}] {source.name}")
             if source.suffix.lower() in PHOTO_EXTENSIONS:
                 render_photo(
                     source, segment, args.photo_duration, width, height, args.fps, args.fit,
+                    args.threads,
                 )
             else:
-                render_video(source, segment, width, height, args.fps, args.fit)
-            segments.append(segment)
+                render_video(source, segment, width, height, args.fps, args.fit, args.threads)
+            return segment
+
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            segments = list(executor.map(render_segment, enumerate(media, 1)))
 
         joined = workdir / "joined.mp4"
         concat_segments(segments, joined, workdir)

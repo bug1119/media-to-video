@@ -30,6 +30,24 @@ class ResolutionTest(unittest.TestCase):
         self.assertIsNone(parse_resolution("auto"))
         self.assertEqual(parse_resolution("3840x2160"), (3840, 2160))
 
+    def test_mixed_media_uses_only_video_dimensions(self):
+        media = [Path("small.jpg"), Path("4k.MOV"), Path("2k.mp4")]
+        with patch("media_to_video.dimensions", side_effect=[(3840, 2160), (2560, 1440)]) as measure:
+            self.assertEqual(auto_resolution(media), (2560, 1440))
+        self.assertEqual([call.args[0] for call in measure.call_args_list], media[1:])
+
+    def test_high_resolution_photos_do_not_raise_video_resolution(self):
+        media = [Path("4k.jpg"), Path("1080p.mp4")]
+        with patch("media_to_video.dimensions", return_value=(1920, 1080)) as measure:
+            self.assertEqual(auto_resolution(media), (1920, 1080))
+        measure.assert_called_once_with(media[1])
+
+    def test_photo_only_uses_all_photo_dimensions(self):
+        media = [Path("4k.jpg"), Path("2k.png")]
+        with patch("media_to_video.dimensions", side_effect=[(3840, 2160), (2560, 1440)]) as measure:
+            self.assertEqual(auto_resolution(media), (2560, 1440))
+        self.assertEqual([call.args[0] for call in measure.call_args_list], media)
+
     def test_no_arguments_prints_examples(self):
         output = io.StringIO()
         with patch.object(sys, "argv", ["media_to_video.py"]), contextlib.redirect_stderr(output):
