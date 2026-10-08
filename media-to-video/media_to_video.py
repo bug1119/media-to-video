@@ -7,12 +7,14 @@ import argparse
 import json
 import logging
 import random
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 
 
@@ -210,11 +212,23 @@ def parse_resolution(value: str) -> tuple[int, int] | None:
     return width, height
 
 
-def collect_media(directory: Path, output: Path) -> list[Path]:
+def directory_date(name: str) -> date | None:
+    match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})|(\d{4})-(\d{2})-(\d{2})", name)
+    if not match:
+        return None
+    parts = match.groups()[:3] if match.group(1) else match.groups()[3:]
+    try:
+        return date(*(int(part) for part in parts))
+    except ValueError:
+        return None
+
+
+def collect_media(directory: Path, output: Path, photos_only: bool = False) -> list[Path]:
+    extensions = PHOTO_EXTENSIONS if photos_only else PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
     candidates = sorted(
         (
             path for path in directory.iterdir()
-            if path.is_file() and path.suffix.lower() in PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
+            if path.is_file() and path.suffix.lower() in extensions
             and path.resolve() != output
         ),
         key=lambda path: path.name.casefold(),
@@ -331,7 +345,7 @@ def execute() -> int:
     )
     parser.add_argument(
         "--output", "-o", type=Path,
-        help="單目錄時為影片路徑（預設：目前工作目錄下的 <素材目錄名稱>.mp4）；有子目錄時為輸出資料夾（預設：指定的父目錄）",
+        help="單目錄時為影片路徑（預設：<素材目錄名稱>.mp4）；日期目錄合併同月照片為 YYYYMM.mp4；父目錄批次時為輸出資料夾",
     )
     parser.add_argument(
         "--music", type=Path, default=DEFAULT_MUSIC_DIRECTORY,
@@ -378,6 +392,7 @@ def execute() -> int:
         parser.error(f"not a directory: {directory}")
     music_path = args.music.expanduser().resolve() if args.music else None
     custom_log = args.log_file.expanduser().resolve() if args.log_file else None
+    selected_date = directory_date(directory.name)
     subdirectories = sorted(
         (path for path in directory.iterdir()
          if path.is_dir() and path.resolve() not in (
@@ -385,14 +400,24 @@ def execute() -> int:
          )),
         key=lambda path: path.name.casefold(),
     )
-    output = requested_output or Path(f"{directory.name}.mp4").resolve()
-    output_directory = (requested_output or directory) if subdirectories else output.parent
-    if subdirectories:
+    if selected_date:
+        month = selected_date.strftime("%Y%m")
+        subdirectories = sorted(
+            (path for path in directory.parent.iterdir()
+             if path.is_dir() and (day := directory_date(path.name))
+             and day.strftime("%Y%m") == month),
+            key=lambda path: (directory_date(path.name), path.name.casefold()),
+        )
+    output_name = selected_date.strftime("%Y%m") if selected_date else directory.name
+    output = requested_output or Path(f"{output_name}.mp4").resolve()
+    batch = bool(subdirectories) and not selected_date
+    output_directory = (requested_output or directory) if batch else output.parent
+    if batch:
         if output_directory.exists() and not output_directory.is_dir():
             parser.error("批次模式的 --output 必須是輸出資料夾")
         if not output_directory.exists() and output_directory.suffix.lower() == ".mp4":
             parser.error("批次模式的 --output 請指定資料夾，而非 .mp4 檔案")
-    log_file = custom_log or output_directory / f"{directory.name}.log"
+    log_file = custom_log or output_directory / f"{output_name}.log"
     if log_file.suffix.lower() in PHOTO_EXTENSIONS | VIDEO_EXTENSIONS | AUDIO_EXTENSIONS:
         parser.error("--log-file 請指定 log 檔案，不可使用素材或音訊副檔名")
     try:
@@ -405,7 +430,7 @@ def execute() -> int:
     LOGGER.setLevel(logging.INFO)
     report(f"執行 log：{log_file}")
     LOGGER.info("執行參數：%s", vars(args))
-    if not subdirectories and output.is_file():
+    if not batch and output.is_file():
         report(f"跳過：{directory}（輸出影片已存在：{output}）")
         report(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
         return 0
@@ -430,6 +455,14 @@ def execute() -> int:
     if args.workers <= 0 or args.threads <= 0:
         parser.error("--workers 與 --threads 必須為正整數")
 
+    if selected_date:
+        report(f"月份合併：{output_name}，共 {len(subdirectories)} 個日期目錄，只使用照片。")
+        media = [photo for child in subdirectories for photo in collect_media(child, output, photos_only=True)]
+        if not media:
+            parser.error(f"{output_name} 的日期目錄內沒有支援的照片")
+        render_directory(media, output, args, started)
+        return 0
+
     if not subdirectories:
         media = collect_media(directory, output)
         if not media:
@@ -439,17 +472,27 @@ def execute() -> int:
 
     jobs = []
     existing_count = 0
+    groups = {}
     for child in subdirectories:
-        output = output_directory / f"{child.name}.mp4"
+        day = directory_date(child.name)
+        key = ("month", day.strftime("%Y%m")) if day else ("directory", child.name)
+        groups.setdefault(key, []).append(child)
+    for (kind, name), children in groups.items():
+        output = output_directory / f"{name}.mp4"
+        label = f"月份 {name}" if kind == "month" else str(children[0])
         if output.is_file():
-            report(f"跳過：{child}（輸出影片已存在：{output}）")
+            report(f"跳過：{label}（輸出影片已存在：{output}）")
             existing_count += 1
             continue
-        media = collect_media(child, output)
+        if kind == "month":
+            children.sort(key=lambda path: (directory_date(path.name), path.name.casefold()))
+            report(f"月份合併：{name}，共 {len(children)} 個日期目錄，只使用照片。")
+        media = [item for child in children
+                 for item in collect_media(child, output, photos_only=kind == "month")]
         if media:
-            jobs.append((child, media, output))
+            jobs.append((label, media, output))
         else:
-            report(f"跳過：{child}（沒有支援或符合合併條件的照片或影片）")
+            report(f"跳過：{label}（沒有支援或符合合併條件的照片或影片）")
     if not jobs:
         if existing_count:
             report(f"批次完成：輸出 0 支影片，{existing_count} 個目錄的輸出影片已存在。")
