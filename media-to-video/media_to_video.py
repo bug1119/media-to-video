@@ -298,8 +298,8 @@ def main() -> int:
         help="音訊模式：mix 混合背景音樂與影片原音；music 僅使用背景音樂；original 保留原音並忽略 --music（預設：mix）",
     )
     parser.add_argument(
-        "--music-volume", type=float, default=0.25,
-        help="背景音樂音量倍率，0 為靜音、1 為原始音量（預設：0.25）",
+        "--music-volume", type=float, default=0.5,
+        help="背景音樂音量倍率，0 為靜音、1 為原始音量（預設：0.5）",
     )
     args = parser.parse_args()
 

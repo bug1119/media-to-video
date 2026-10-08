@@ -153,7 +153,7 @@ python3 media-to-video/media_to_video.py \
 | `--audio-mode mix` | `mix` | 混合影片原音與背景音樂 |
 | `--audio-mode music` | | 只使用背景音樂 |
 | `--audio-mode original` | | 忽略背景音樂，只保留原音 |
-| `--music-volume` | `0.25` | 背景音樂音量倍率 |
+| `--music-volume` | `0.5` | 背景音樂音量倍率 |
 
 ## 支援格式
 
