@@ -89,6 +89,8 @@ python3 media-to-video/media_to_video.py "/path/to/media" \
 
 背景音樂比成片短時會循環播放，超過成片長度時會自動截短。
 
+未指定 `--music` 時，預設從 `/Volumes/photo/picture/YouTube-Audio-Library/` 隨機選曲。該目錄不存在時，略過背景音樂並保留影片原音，略過原因會記錄於終端機與 log。可用 `--music` 指定其他檔案或資料夾，或使用 `--audio-mode original` 停用背景音樂。
+
 `--music` 也可以指定音樂資料夾，程式會從第一層音訊檔中隨機選一首，並顯示選用的檔案路徑。批次模式下每支影片各自抽選，可能選到相同曲目：
 
 ```bash
@@ -158,7 +160,7 @@ python3 media-to-video/media_to_video.py "/path/to/202601" \
 | `directory` | 必填 | 照片與影片所在目錄 |
 | `--log-file` | 輸出影片資料夾內的 `<素材目錄名稱>.log` | 執行紀錄，包含時間戳記；同名檔案追加 |
 | `--output`, `-o` | 單目錄：`<素材目錄名稱>.mp4`；批次：指定的父目錄 | 單目錄時為 MP4 路徑，預設放在目前工作目錄；批次時為輸出資料夾 |
-| `--music` | 無 | 音訊檔，或每支影片隨機選一首的音樂資料夾 |
+| `--music` | `/Volumes/photo/picture/YouTube-Audio-Library/` | 音訊檔或隨機選曲資料夾；預設目錄不存在時略過 |
 | `--photo-duration` | `1.5` | 每張照片顯示秒數 |
 | `--resolution` | `auto` | 優先依影片選 4K/2K/1080p，無影片時依照片；或手動指定偶數尺寸 |
 | `--fps` | `30` | 輸出 frame rate |

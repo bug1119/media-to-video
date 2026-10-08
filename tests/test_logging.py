@@ -43,6 +43,7 @@ class LoggingTest(unittest.TestCase):
                     patch.object(sys, "argv", [
                         "media_to_video.py", temp, "--resolution", "320x180",
                         "--output", str(root / "output.mp4"),
+                        "--audio-mode", "original",
                     ]),
                     patch("media_to_video.shutil.which", return_value="ffmpeg"),
                     patch("media_to_video.render_photo"),

@@ -104,6 +104,7 @@ class RenderIntegrationTest(unittest.TestCase):
                 patch.object(sys, "argv", [
                     "media_to_video.py", temp, "--output", str(output),
                     "--resolution", "320x180", "--photo-duration", "1",
+                    "--audio-mode", "original",
                 ]),
                 patch("media_to_video.time.perf_counter", side_effect=[100.0, 102.5]),
                 contextlib.redirect_stdout(summary),

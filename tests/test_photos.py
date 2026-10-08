@@ -39,6 +39,7 @@ class PhotoTest(unittest.TestCase):
             with (
                 patch.object(sys, "argv", [
                     "media_to_video.py", temp, "--output", str(root / "output.mp4"),
+                    "--audio-mode", "original",
                 ]),
                 patch("media_to_video.shutil.which", return_value="ffmpeg"),
                 patch("media_to_video.convert_photo_to_jpg", side_effect=convert),

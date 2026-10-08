@@ -21,6 +21,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif", ".wma"}
 MAX_VIDEO_BYTES = 200_000_000
 MAX_VIDEO_COUNT = 10
+DEFAULT_MUSIC_DIRECTORY = Path("/Volumes/photo/picture/YouTube-Audio-Library")
 RESOLUTION_TIERS = (
     ("4K", 3840, 2160),
     ("2K", 2560, 1440),
@@ -333,8 +334,8 @@ def execute() -> int:
         help="單目錄時為影片路徑（預設：目前工作目錄下的 <素材目錄名稱>.mp4）；有子目錄時為輸出資料夾（預設：指定的父目錄）",
     )
     parser.add_argument(
-        "--music", type=Path,
-        help="背景音樂檔或資料夾；資料夾內每支影片隨機選一首音樂，不遞迴子目錄（選填）",
+        "--music", type=Path, default=DEFAULT_MUSIC_DIRECTORY,
+        help="背景音樂檔或資料夾；每支影片隨機選一首，不遞迴子目錄（預設：/Volumes/photo/picture/YouTube-Audio-Library，不存在時略過）",
     )
     parser.add_argument(
         "--photo-duration", type=float, default=1.5, help="每張照片的顯示秒數（預設：1.5）",
@@ -420,7 +421,10 @@ def execute() -> int:
             if not args.music_files:
                 parser.error(f"音樂資料夾內沒有支援的音訊檔：{music_path}")
         else:
-            parser.error(f"找不到背景音樂檔或資料夾：{music_path}")
+            if music_path == DEFAULT_MUSIC_DIRECTORY:
+                report(f"略過背景音樂：預設音樂目錄不存在：{music_path}")
+            else:
+                parser.error(f"找不到背景音樂檔或資料夾：{music_path}")
     if args.photo_duration <= 0 or args.fps <= 0 or args.music_volume < 0:
         parser.error("durations/FPS must be positive and music volume cannot be negative")
     if args.workers <= 0 or args.threads <= 0:

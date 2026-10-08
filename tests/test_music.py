@@ -10,6 +10,35 @@ from media_to_video import main
 
 
 class MusicTest(unittest.TestCase):
+    def test_default_music_directory_is_used_or_skipped_when_missing(self):
+        for exists in (False, True):
+            with self.subTest(exists=exists), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve()
+                media = root / "media"
+                media.mkdir()
+                (media / "photo.jpg").touch()
+                music = root / "default-music"
+                if exists:
+                    music.mkdir()
+                    (music / "track.mp3").touch()
+                summary = io.StringIO()
+                with (
+                    patch("media_to_video.DEFAULT_MUSIC_DIRECTORY", music),
+                    patch.object(sys, "argv", [
+                        "media_to_video.py", str(media), "--output", str(root / "output.mp4"),
+                    ]),
+                    patch("media_to_video.shutil.which", return_value="ffmpeg"),
+                    patch("media_to_video.render_directory", return_value=(1, 0)) as render,
+                    contextlib.redirect_stdout(summary),
+                ):
+                    self.assertEqual(main(), 0)
+                self.assertEqual(
+                    render.call_args.args[2].music_files,
+                    [music / "track.mp3"] if exists else [],
+                )
+                if not exists:
+                    self.assertIn("預設音樂目錄不存在", summary.getvalue())
+
     def test_batch_selects_music_for_each_video_and_excludes_music_folder(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()

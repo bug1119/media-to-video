@@ -32,7 +32,7 @@ class ParallelTest(unittest.TestCase):
                     barrier.wait()
                     second_finished.set()
 
-                argv = ["media_to_video.py", temp, "--resolution", "320x180", *options]
+                argv = ["media_to_video.py", temp, "--resolution", "320x180", "--audio-mode", "original", *options]
                 with (
                     patch.object(sys, "argv", argv),
                     patch("media_to_video.shutil.which", return_value="ffmpeg"),
