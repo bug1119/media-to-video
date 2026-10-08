@@ -178,7 +178,9 @@ python3 media-to-video/media_to_video.py "/path/to/202601" \
 - JPG / JPEG
 - PNG
 - WebP
-- HEIC / HEIF，需 ffmpeg build 支援
+- HEIC / HEIF
+
+PNG、WebP、HEIC / HEIF 會先轉成暫存 JPG 再合併；JPG/JPEG 直接使用。原始圖片不會被覆寫，暫存 JPG 會隨中間片段清除。macOS 的 HEIC / HEIF 使用內建 `sips` 轉換；其他系統需 ffmpeg 支援 HEIC / HEIF 解碼。轉換進度會記錄於終端機與 log。
 
 影片：
 

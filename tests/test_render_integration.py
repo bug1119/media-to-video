@@ -9,11 +9,28 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from media_to_video import main
+from media_to_video import convert_photo_to_jpg, dimensions, main
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is required")
 class RenderIntegrationTest(unittest.TestCase):
+    def test_png_is_converted_to_real_jpg(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for extension in ("png",):
+                source = root / f"photo.{extension}"
+                subprocess.run(
+                    ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                     "color=red:s=320x180", "-frames:v", "1", str(source)],
+                    check=True, capture_output=True,
+                )
+                output = root / f"{extension}.jpg"
+                with contextlib.redirect_stdout(io.StringIO()):
+                    convert_photo_to_jpg(source, output)
+                self.assertEqual(output.read_bytes()[:2], b"\xff\xd8")
+                self.assertEqual(dimensions(output), (320, 180))
+                self.assertTrue(source.exists())
+
     def test_batch_outputs_each_album_with_default_photo_duration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

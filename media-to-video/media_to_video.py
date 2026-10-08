@@ -116,6 +116,17 @@ def video_filter(width: int, height: int, fps: int, fit: str) -> str:
     return f"{size},setsar=1,fps={fps},format=yuv420p"
 
 
+def convert_photo_to_jpg(source: Path, output: Path) -> None:
+    report(f"轉換圖片為 JPG：{source.name}")
+    if source.suffix.lower() in {".heic", ".heif"} and shutil.which("sips"):
+        run(["sips", "-s", "format", "jpeg", str(source), "--out", str(output)])
+        return
+    run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+        "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2", "-update", "1", str(output),
+    ])
+
+
 def render_photo(
     source: Path, output: Path, duration: float, width: int, height: int, fps: int, fit: str,
     threads: int = 4,
@@ -234,20 +245,31 @@ def render_directory(
     if music:
         report(f"背景音樂：{music}")
 
-    width, height = auto_resolution(media) if args.resolution is None else args.resolution
-    output.parent.mkdir(parents=True, exist_ok=True)
-    report(
-        f"Found {len(media)} media files. Rendering {width}x{height} at {args.fps} fps "
-        f"with {args.workers} workers and {args.threads} encoding threads per worker..."
-    )
-
     with tempfile.TemporaryDirectory(prefix="media-to-video-") as temp:
         workdir = Path(temp)
+
+        def prepare_source(item: tuple[int, Path]) -> Path:
+            index, source = item
+            if source.suffix.lower() in PHOTO_EXTENSIONS - {".jpg", ".jpeg"}:
+                converted = workdir / f"photo-{index:06d}.jpg"
+                convert_photo_to_jpg(source, converted)
+                return converted
+            return source
+
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            prepared = list(executor.map(prepare_source, enumerate(media, 1)))
+
+        width, height = auto_resolution(prepared) if args.resolution is None else args.resolution
+        output.parent.mkdir(parents=True, exist_ok=True)
+        report(
+            f"Found {len(media)} media files. Rendering {width}x{height} at {args.fps} fps "
+            f"with {args.workers} workers and {args.threads} encoding threads per worker..."
+        )
 
         def render_segment(item: tuple[int, Path]) -> Path:
             index, source = item
             segment = workdir / f"segment-{index:06d}.mp4"
-            report(f"[{index}/{len(media)}] {source.name}")
+            report(f"[{index}/{len(media)}] {media[index - 1].name}")
             if source.suffix.lower() in PHOTO_EXTENSIONS:
                 render_photo(
                     source, segment, args.photo_duration, width, height, args.fps, args.fit,
@@ -258,7 +280,7 @@ def render_directory(
             return segment
 
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
-            segments = list(executor.map(render_segment, enumerate(media, 1)))
+            segments = list(executor.map(render_segment, enumerate(prepared, 1)))
 
         joined = workdir / "joined.mp4"
         concat_segments(segments, joined, workdir)
