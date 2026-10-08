@@ -173,6 +173,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
         epilog="""examples:
   Basic, with automatic 4K/2K/1080p selection:
     %(prog)s /path/to/media --output output.mp4
@@ -186,23 +187,37 @@ def main() -> int:
       --resolution 3840x2160 --fit crop
 """,
     )
+    parser.add_argument("-h", "--help", action="help", help="顯示此說明訊息並結束")
     parser.add_argument(
-        "directory", nargs="?", type=Path, help="directory containing photos and videos",
+        "directory", nargs="?", type=Path, help="包含照片與影片的資料夾",
     )
-    parser.add_argument("--output", "-o", type=Path, default=Path("output.mp4"))
-    parser.add_argument("--music", type=Path, help="optional MP3 or other ffmpeg-readable audio")
-    parser.add_argument("--photo-duration", type=float, default=2.0)
+    parser.add_argument(
+        "--output", "-o", type=Path, default=Path("output.mp4"),
+        help="輸出影片路徑（預設：output.mp4）",
+    )
+    parser.add_argument(
+        "--music", type=Path, help="背景音樂路徑，可使用 MP3 或其他 ffmpeg 支援的音訊格式（選填）",
+    )
+    parser.add_argument(
+        "--photo-duration", type=float, default=2.0, help="每張照片的顯示秒數（預設：2）",
+    )
     parser.add_argument(
         "--resolution", type=parse_resolution, default=None,
-        help="auto, or an explicit even-sized resolution such as 3840x2160 (default: auto)",
+        help="輸出解析度：auto 自動選擇，或指定寬高皆為正偶數的尺寸，例如 3840x2160（預設：auto）",
     )
-    parser.add_argument("--fps", type=int, default=30, help="output frame rate (default: 30)")
-    parser.add_argument("--fit", choices=("pad", "crop"), default="pad")
+    parser.add_argument("--fps", type=int, default=30, help="輸出影片每秒影格數（預設：30）")
+    parser.add_argument(
+        "--fit", choices=("pad", "crop"), default="pad",
+        help="畫面適配方式：pad 保留完整畫面並補黑邊；crop 裁切以填滿畫面（預設：pad）",
+    )
     parser.add_argument(
         "--audio-mode", choices=("mix", "music", "original"), default="mix",
-        help="mix music with video audio, replace it, or ignore --music",
+        help="音訊模式：mix 混合背景音樂與影片原音；music 僅使用背景音樂；original 保留原音並忽略 --music（預設：mix）",
     )
-    parser.add_argument("--music-volume", type=float, default=0.25)
+    parser.add_argument(
+        "--music-volume", type=float, default=0.25,
+        help="背景音樂音量倍率，0 為靜音、1 為原始音量（預設：0.25）",
+    )
     args = parser.parse_args()
 
     if args.directory is None:
