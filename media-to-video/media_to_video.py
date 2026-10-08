@@ -176,94 +176,20 @@ def parse_resolution(value: str) -> tuple[int, int] | None:
     return width, height
 
 
-def main() -> int:
-    started = time.perf_counter()
-    parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        add_help=False,
-        epilog="""examples:
-  Basic, with automatic 4K/2K/1080p selection:
-    %(prog)s /path/to/media --output output.mp4
-
-  Show each photo for 2 seconds and mix looping background music:
-    %(prog)s /path/to/media --output output.mp4 \\
-      --music music.mp3 --photo-duration 2 --audio-mode mix --music-volume 0.25
-
-  Force 4K output and crop every item to fill the frame:
-    %(prog)s /path/to/media --output output-4k.mp4 \\
-      --resolution 3840x2160 --fit crop
-""",
-    )
-    parser.add_argument("-h", "--help", action="help", help="顯示此說明訊息並結束")
-    parser.add_argument(
-        "directory", nargs="?", type=Path, help="包含照片與影片的資料夾",
-    )
-    parser.add_argument(
-        "--output", "-o", type=Path, default=Path("output.mp4"),
-        help="輸出影片路徑（預設：output.mp4）",
-    )
-    parser.add_argument(
-        "--music", type=Path, help="背景音樂路徑，可使用 MP3 或其他 ffmpeg 支援的音訊格式（選填）",
-    )
-    parser.add_argument(
-        "--photo-duration", type=float, default=2.0, help="每張照片的顯示秒數（預設：2）",
-    )
-    parser.add_argument(
-        "--resolution", type=parse_resolution, default=None,
-        help="輸出解析度：auto 優先依影片選擇 4K/2K/1080p，無影片時依照片；或指定正偶數尺寸，例如 3840x2160（預設：auto）",
-    )
-    parser.add_argument("--fps", type=int, default=30, help="輸出影片每秒影格數（預設：30）")
-    parser.add_argument(
-        "--workers", type=int, default=2, help="同時轉檔的檔案數，須為正整數（預設：2）",
-    )
-    parser.add_argument(
-        "--threads", type=int, default=4,
-        help="每個轉檔工作的 H.264 編碼執行緒數，須為正整數（預設：4）",
-    )
-    parser.add_argument(
-        "--fit", choices=("pad", "crop"), default="pad",
-        help="畫面適配方式：pad 保留完整畫面並補黑邊；crop 裁切以填滿畫面（預設：pad）",
-    )
-    parser.add_argument(
-        "--audio-mode", choices=("mix", "music", "original"), default="mix",
-        help="音訊模式：mix 混合背景音樂與影片原音；music 僅使用背景音樂；original 保留原音並忽略 --music（預設：mix）",
-    )
-    parser.add_argument(
-        "--music-volume", type=float, default=0.25,
-        help="背景音樂音量倍率，0 為靜音、1 為原始音量（預設：0.25）",
-    )
-    args = parser.parse_args()
-
-    if args.directory is None:
-        parser.print_help(sys.stderr)
-        return 2
-
-    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
-        parser.error("ffmpeg and ffprobe are required; install them with: brew install ffmpeg")
-    directory = args.directory.expanduser().resolve()
-    output = args.output.expanduser().resolve()
-    if not directory.is_dir():
-        parser.error(f"not a directory: {directory}")
-    if args.music and not args.music.expanduser().is_file():
-        parser.error(f"music file not found: {args.music}")
-    if args.photo_duration <= 0 or args.fps <= 0 or args.music_volume < 0:
-        parser.error("durations/FPS must be positive and music volume cannot be negative")
-    if args.workers <= 0 or args.threads <= 0:
-        parser.error("--workers 與 --threads 必須為正整數")
-
-    media = sorted(
+def collect_media(directory: Path, output: Path) -> list[Path]:
+    return sorted(
         (
             path for path in directory.iterdir()
             if path.is_file() and path.suffix.lower() in PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
+            and path.resolve() != output
         ),
         key=lambda path: path.name.casefold(),
     )
-    if not media:
-        parser.error(f"no supported photos or videos found in {directory}")
-    if output in media:
-        media.remove(output)
 
+
+def render_directory(
+    media: list[Path], output: Path, args: argparse.Namespace, started: float,
+) -> tuple[int, int]:
     photo_count = sum(path.suffix.lower() in PHOTO_EXTENSIONS for path in media)
     video_count = len(media) - photo_count
 
@@ -306,6 +232,128 @@ def main() -> int:
     print(f"Created: {output}")
     print(f"合併完成：{photo_count} 張照片、{video_count} 部影片，共 {len(media)} 個素材。")
     print(f"總執行時間：{time.perf_counter() - started:.2f} 秒。")
+    return photo_count, video_count
+
+
+def main() -> int:
+    started = time.perf_counter()
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+        epilog="""examples:
+  Basic, with automatic 4K/2K/1080p selection:
+    %(prog)s /path/to/media --output output.mp4
+
+  Show each photo for 2 seconds and mix looping background music:
+    %(prog)s /path/to/media --output output.mp4 \\
+      --music music.mp3 --photo-duration 2 --audio-mode mix --music-volume 0.25
+
+  Force 4K output and crop every item to fill the frame:
+    %(prog)s /path/to/media --output output-4k.mp4 \\
+      --resolution 3840x2160 --fit crop
+
+  Render each immediate subdirectory into a separate video:
+    %(prog)s /path/to/albums --output /path/to/output-directory
+""",
+    )
+    parser.add_argument("-h", "--help", action="help", help="顯示此說明訊息並結束")
+    parser.add_argument(
+        "directory", nargs="?", type=Path, help="包含照片與影片的資料夾",
+    )
+    parser.add_argument(
+        "--output", "-o", type=Path,
+        help="單目錄時為影片路徑（預設：output.mp4）；有子目錄時為輸出資料夾（預設：指定的父目錄）",
+    )
+    parser.add_argument(
+        "--music", type=Path, help="背景音樂路徑，可使用 MP3 或其他 ffmpeg 支援的音訊格式（選填）",
+    )
+    parser.add_argument(
+        "--photo-duration", type=float, default=1.5, help="每張照片的顯示秒數（預設：1.5）",
+    )
+    parser.add_argument(
+        "--resolution", type=parse_resolution, default=None,
+        help="輸出解析度：auto 優先依影片選擇 4K/2K/1080p，無影片時依照片；或指定正偶數尺寸，例如 3840x2160（預設：auto）",
+    )
+    parser.add_argument("--fps", type=int, default=30, help="輸出影片每秒影格數（預設：30）")
+    parser.add_argument(
+        "--workers", type=int, default=2, help="同時轉檔的檔案數，須為正整數（預設：2）",
+    )
+    parser.add_argument(
+        "--threads", type=int, default=4,
+        help="每個轉檔工作的 H.264 編碼執行緒數，須為正整數（預設：4）",
+    )
+    parser.add_argument(
+        "--fit", choices=("pad", "crop"), default="pad",
+        help="畫面適配方式：pad 保留完整畫面並補黑邊；crop 裁切以填滿畫面（預設：pad）",
+    )
+    parser.add_argument(
+        "--audio-mode", choices=("mix", "music", "original"), default="mix",
+        help="音訊模式：mix 混合背景音樂與影片原音；music 僅使用背景音樂；original 保留原音並忽略 --music（預設：mix）",
+    )
+    parser.add_argument(
+        "--music-volume", type=float, default=0.25,
+        help="背景音樂音量倍率，0 為靜音、1 為原始音量（預設：0.25）",
+    )
+    args = parser.parse_args()
+
+    if args.directory is None:
+        parser.print_help(sys.stderr)
+        return 2
+
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        parser.error("ffmpeg and ffprobe are required; install them with: brew install ffmpeg")
+    directory = args.directory.expanduser().resolve()
+    requested_output = args.output.expanduser().resolve() if args.output else None
+    if not directory.is_dir():
+        parser.error(f"not a directory: {directory}")
+    if args.music and not args.music.expanduser().is_file():
+        parser.error(f"music file not found: {args.music}")
+    if args.photo_duration <= 0 or args.fps <= 0 or args.music_volume < 0:
+        parser.error("durations/FPS must be positive and music volume cannot be negative")
+    if args.workers <= 0 or args.threads <= 0:
+        parser.error("--workers 與 --threads 必須為正整數")
+
+    subdirectories = sorted(
+        (path for path in directory.iterdir() if path.is_dir() and path.resolve() != requested_output),
+        key=lambda path: path.name.casefold(),
+    )
+    if not subdirectories:
+        output = requested_output or Path("output.mp4").resolve()
+        media = collect_media(directory, output)
+        if not media:
+            parser.error(f"no supported photos or videos found in {directory}")
+        render_directory(media, output, args, started)
+        return 0
+
+    output_directory = requested_output or directory
+    if output_directory.exists() and not output_directory.is_dir():
+        parser.error("批次模式的 --output 必須是輸出資料夾")
+    if not output_directory.exists() and output_directory.suffix.lower() == ".mp4":
+        parser.error("批次模式的 --output 請指定資料夾，而非 .mp4 檔案")
+
+    jobs = []
+    for child in subdirectories:
+        output = output_directory / f"{child.name}.mp4"
+        media = collect_media(child, output)
+        if media:
+            jobs.append((child, media, output))
+        else:
+            print(f"跳過：{child}（沒有支援的照片或影片）")
+    if not jobs:
+        parser.error("所有子目錄都沒有支援的照片或影片")
+
+    total_photos = total_videos = 0
+    for index, (child, media, output) in enumerate(jobs, 1):
+        print(f"\n[{index}/{len(jobs)}] 處理子目錄：{child}")
+        photos, videos = render_directory(media, output, args, time.perf_counter())
+        total_photos += photos
+        total_videos += videos
+    print(
+        f"\n批次完成：輸出 {len(jobs)} 支影片，合併 {total_photos} 張照片、"
+        f"{total_videos} 部影片，共 {total_photos + total_videos} 個素材。"
+    )
+    print(f"整批執行時間：{time.perf_counter() - started:.2f} 秒。")
     return 0
 
 

@@ -1,6 +1,6 @@
 # media-to-video
 
-將指定目錄內的照片與影片依檔名排序，合併輸出為單一 MP4。照片預設顯示 2 秒，影片保留原長度與聲音，並可加入循環播放的 MP3 背景音樂。程式會優先依影片解析度，自動選擇 4K、2K 或 1080p 輸出；只有照片時才依照片判斷。
+將指定目錄內的照片與影片依檔名排序，合併輸出為單一 MP4。照片預設顯示 1.5 秒，影片保留原長度與聲音，並可加入循環播放的 MP3 背景音樂。程式會優先依影片解析度，自動選擇 4K、2K 或 1080p 輸出；只有照片時才依照片判斷。
 
 ## 需求
 
@@ -43,6 +43,33 @@ python3 media-to-video/media_to_video.py "/path/to/media" \
   --output "/path/to/output.mp4" \
   --resolution 3840x2160
 ```
+
+### 子目錄批次輸出
+
+指定目錄內有第一層子目錄時，每個子目錄單獨製作一支影片，以子目錄名稱命名，預設放在指定的父目錄。例如：
+
+```text
+albums/
+  trip-a/          → albums/trip-a.mp4
+  trip-b/          → albums/trip-b.mp4
+```
+
+```bash
+python3 media-to-video/media_to_video.py "/path/to/albums" \
+  --photo-duration 3
+```
+
+`--photo-duration` 指定每張照片顯示幾秒（預設 1.5 秒，可使用小數）。批次模式的 `--output` 為輸出資料夾：
+
+```bash
+python3 media-to-video/media_to_video.py "/path/to/albums" \
+  --output "/path/to/rendered" \
+  --photo-duration 3 --workers 2 --threads 4
+```
+
+子目錄依名稱排序，逐一製作影片；每支影片內的素材仍並行轉檔。所有子目錄套用相同參數，但自動解析度各自判斷。沒有支援素材的子目錄會跳過；父目錄中的素材不參與批次輸出，也不遞迴讀取更深層目錄。指定的輸出資料夾不會當作輸入子目錄。
+
+每支影片完成後顯示照片數、影片數與耗時，最後顯示整批合併數量與執行時間。沒有子目錄時，維持原本單一影片的輸出方式。
 
 ### 多核心並行轉檔
 
@@ -104,9 +131,9 @@ python3 media-to-video/media_to_video.py \
 | 參數 | 預設值 | 說明 |
 |---|---:|---|
 | `directory` | 必填 | 照片與影片所在目錄 |
-| `--output`, `-o` | `output.mp4` | 輸出 MP4 路徑 |
+| `--output`, `-o` | 單目錄：`output.mp4`；批次：指定的父目錄 | 單目錄時為 MP4 路徑；批次時為輸出資料夾 |
 | `--music` | 無 | MP3 或 ffmpeg 可讀取的音訊檔 |
-| `--photo-duration` | `2.0` | 每張照片顯示秒數 |
+| `--photo-duration` | `1.5` | 每張照片顯示秒數 |
 | `--resolution` | `auto` | 優先依影片選 4K/2K/1080p，無影片時依照片；或手動指定偶數尺寸 |
 | `--fps` | `30` | 輸出 frame rate |
 | `--workers` | `2` | 同時轉檔的檔案數（正整數） |
@@ -149,4 +176,4 @@ python3 media-to-video/media_to_video.py \
 
 - 大量高解析度照片或影片需要較長處理時間及暫存空間。
 - 輸出檔若已存在會被覆寫。
-- 程式只讀取指定目錄的第一層，不遞迴處理子目錄。
+- 有子目錄時，每個第一層子目錄分別輸出影片，只讀取該子目錄直接包含的素材，不再向下遞迴。

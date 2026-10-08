@@ -22,6 +22,7 @@ class ParallelTest(unittest.TestCase):
                 second_finished = threading.Event()
 
                 def photo(source, output, *args):
+                    self.assertEqual(args[0], 1.5)
                     self.assertEqual(args[-1], threads)
                     barrier.wait()
                     self.assertTrue(second_finished.wait(timeout=5))
