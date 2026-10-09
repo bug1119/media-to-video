@@ -44,8 +44,10 @@ class ArgumentParser(argparse.ArgumentParser):
 
 
 def run(command: list[str]) -> None:
+    if command[0] == "ffmpeg":
+        command = [command[0], "-nostdin", *command[1:]]
     LOGGER.info("執行指令：%s", command)
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True)
     if result.stderr:
         LOGGER.log(logging.ERROR if result.returncode else logging.INFO, result.stderr.rstrip())
         print(result.stderr, end="", file=sys.stderr)
