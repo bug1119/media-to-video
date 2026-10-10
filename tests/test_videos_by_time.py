@@ -16,6 +16,15 @@ spec.loader.exec_module(module)
 
 
 class VideosByTimeTest(unittest.TestCase):
+    def test_no_arguments_displays_parameter_descriptions_and_examples(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(module.main([]), 2)
+        help_text = output.getvalue()
+        for text in ("使用範例", "--resolution 4k", "--list-only", "--time-source mtime",
+                     "輸出每秒影格數", "每部影片的編碼執行緒數"):
+            self.assertIn(text, help_text)
+
     def test_metadata_precedes_mtime_and_invalid_metadata_falls_back(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "clip.mp4"

@@ -75,18 +75,45 @@ def collect_videos(directory: Path, output: Path, time_source: str) -> list[tupl
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="遞迴找出影片，按時間由舊到新合併成一支 MP4，保留原音。")
-    parser.add_argument("directory", type=Path, help="素材根目錄")
+    parser = argparse.ArgumentParser(
+        description="遞迴找出影片，按時間由舊到新合併成一支 MP4，保留原音。",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""使用範例：
+  合併指定目錄（包含所有子目錄）：
+    %(prog)s /Volumes/photo/picture/2024/
+
+  指定輸出檔案與4K解析度：
+    %(prog)s /Volumes/photo/picture/2024/ --output /Volumes/photo/picture/2024-videos.mp4 --resolution 4k
+
+  只列出影片與排序時間，不轉檔：
+    %(prog)s /Volumes/photo/picture/2024/ --list-only
+
+  按檔案修改時間排序，以1080p輸出：
+    %(prog)s /Volumes/photo/videos/ --time-source mtime --resolution 1080p
+
+  處理目前目錄並設定轉檔並行數：
+    %(prog)s . --resolution 720p --workers 2 --threads 4
+
+排序：預設優先使用拍攝時間creation_time，缺少時使用修改時間；同時間依相對路徑排序。
+解析度：720p=1280×720、1080p=1920×1080、2k=2560×1440、4k=3840×2160。
+輸出已存在時跳過；無音訊片段補靜音，不加入背景音樂。
+""",
+    )
+    parser.add_argument("directory", nargs="?", type=Path, help="素材根目錄（必填；遞迴搜尋所有子目錄）")
     parser.add_argument("--output", "-o", type=Path, help="輸出MP4（預設：目前目錄的 <素材目錄名稱>-videos.mp4）")
     parser.add_argument("--time-source", choices=("recorded", "mtime"), default="recorded",
                         help="recorded：影片creation_time，缺少時用修改時間；mtime：只用修改時間（預設recorded）")
     parser.add_argument("--resolution", type=parse_resolution, default=None, help="720p、1080p、2k、4k，或auto；亦支援寬x高（預設auto）")
-    parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--fit", choices=("pad", "crop"), default="pad")
-    parser.add_argument("--workers", type=int, default=2)
-    parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--fps", type=int, default=30, help="輸出每秒影格數，須為正整數（預設30）")
+    parser.add_argument("--fit", choices=("pad", "crop"), default="pad",
+                        help="pad：保留完整畫面並補黑邊；crop：裁切填滿畫面（預設pad）")
+    parser.add_argument("--workers", type=int, default=2, help="同時轉檔的影片數，須為正整數（預設2）")
+    parser.add_argument("--threads", type=int, default=4, help="每部影片的編碼執行緒數，須為正整數（預設4）")
     parser.add_argument("--list-only", action="store_true", help="只列出影片與排序時間，不轉檔")
     args = parser.parse_args(argv)
+    if args.directory is None:
+        parser.print_help()
+        return 2
     directory = args.directory.expanduser().resolve()
     output = args.output.expanduser().resolve() if args.output else Path(f"{directory.name}-videos.mp4").resolve()
     if not directory.is_dir():
