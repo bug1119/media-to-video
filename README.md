@@ -15,6 +15,25 @@ brew install ffmpeg
 
 ## 使用方式
 
+### 只合併影片，依拍攝時間排序
+
+`videos_by_time.py` 遞迴搜尋指定目錄下所有層級的影片，以影片 metadata 的 `creation_time` 由舊到新排序，缺少有效拍攝時間時改用檔案修改時間。同時間依相對路徑排序；metadata 未提供時區時視為 UTC，排序清單顯示 UTC。
+
+```bash
+python3 ~/git/media-to-video/videos_by_time.py /Volumes/photo/picture/2024/ \
+  --output /Volumes/photo/picture/2024-videos.mp4
+```
+
+只查看排序、不轉檔：
+
+```bash
+python3 ~/git/media-to-video/videos_by_time.py /Volumes/photo/picture/2024/ --list-only
+```
+
+可用 `--time-source mtime` 改為只依修改時間排序。支援MP4、MOV、M4V、AVI、MKV、WEBM；不套用照片合併程式的檔名、200MB或10部影片篩選，會列出並跳過無效影片。遞迴不走訪符號連結目錄，排除輸出本身，輸出已存在時跳過。
+
+保留原音，沒有音訊的片段補靜音。不同格式、解析度與幀率會重新編碼為一致的 H.264/AAC MP4後串接。可用 `--resolution 1920x1080 --fps 30 --workers 2 --threads 4` 控制轉檔；預設自動解析度、30fps、保留完整畫面補黑邊。未指定輸出時，放在目前目錄的 `<素材目錄名稱>-videos.mp4`。執行log位於輸出MP4旁的同名 `.log`。
+
 直接執行但不帶參數時，會顯示完整參數與使用範例：
 
 ```bash
