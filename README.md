@@ -15,6 +15,17 @@ brew install ffmpeg
 
 ## 使用方式
 
+### 複製日期目錄的影片
+
+```bash
+python3 ~/git/media-to-video/copy_date_videos.py \
+  /Volumes/photo/picture/ /Volumes/photo/videos/
+```
+
+第一個參數為來源、第二個參數為目的目錄。只找來源第一層日期命名子目錄（例如 `2021`、`202401`、`20240101`、`2024010507`、`2024-01-01`），在目的地建立同名子目錄，複製其中第一層的 MP4、MOV、M4V、AVI、MKV、WEBM（不區分副檔名大小寫）。不遞迴、忽略符號連結；保留檔案時間，同名檔案已存在就跳過，不覆寫。
+
+例如 `picture/2021/clip.mov` → `videos/2021/clip.mov`；`picture/2021/trip/clip.mov` 不會被複製。
+
 ### 只合併影片，依拍攝時間排序
 
 `videos_by_time.py` 遞迴搜尋指定目錄下所有層級的影片，以影片 metadata 的 `creation_time` 由舊到新排序，缺少有效拍攝時間時改用檔案修改時間。同時間依相對路徑排序；metadata 未提供時區時視為 UTC，排序清單顯示 UTC。
