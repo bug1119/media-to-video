@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import random
 import re
 import shutil
@@ -322,6 +323,20 @@ def collect_media(directory: Path, output: Path, photos_only: bool = False) -> l
     return media
 
 
+def collect_recursive_media(directory: Path, output: Path, music_path: Path | None) -> list[Path]:
+    media = []
+    for root, children, _ in os.walk(directory):
+        folder = Path(root)
+        children[:] = sorted(
+            (name for name in children
+             if not (folder / name).is_symlink()
+             and (folder / name).resolve() != music_path),
+            key=str.casefold,
+        )
+        media.extend(collect_media(folder, output))
+    return sorted(media, key=lambda path: path.relative_to(directory).as_posix().casefold())
+
+
 def render_directory(
     media: list[Path], output: Path, args: argparse.Namespace, started: float,
 ) -> tuple[int, int]:
@@ -446,6 +461,10 @@ def execute() -> int:
         help="日期目錄合併：month 按月；week 按 ISO 週（週一至週日）；none 不合併目錄（預設：month）",
     )
     parser.add_argument(
+        "--recursive", action="store_true",
+        help="遞迴收集指定目錄與所有子目錄素材，合併成單一影片，優先於 --date-group",
+    )
+    parser.add_argument(
         "--log-file", type=Path,
         help="執行 log 路徑，包含時間戳記與錯誤，同名檔案追加紀錄（預設：輸出影片資料夾內的 <素材目錄名稱>.log）",
     )
@@ -501,7 +520,7 @@ def execute() -> int:
         parser.error(f"not a directory: {directory}")
     music_path = args.music.expanduser().resolve() if args.music else None
     custom_log = args.log_file.expanduser().resolve() if args.log_file else None
-    selected_date = directory_group_date(directory.name, args.date_group) if args.date_group != "none" else None
+    selected_date = directory_group_date(directory.name, args.date_group) if args.date_group != "none" and not args.recursive else None
     subdirectories = sorted(
         (path for path in directory.iterdir()
          if path.is_dir() and path.resolve() not in (
@@ -519,7 +538,9 @@ def execute() -> int:
         )
     output_name = date_group_name(selected_date, args.date_group) if selected_date else directory.name
     output = requested_output or Path(f"{output_name}.mp4").resolve()
-    batch = bool(subdirectories) and not selected_date
+    batch = bool(subdirectories) and not selected_date and not args.recursive
+    if args.recursive and output.is_dir():
+        parser.error("--recursive 的 --output 必須是影片檔案，而非資料夾")
     output_directory = (requested_output or directory) if batch else output.parent
     if batch:
         if output_directory.exists() and not output_directory.is_dir():
@@ -563,6 +584,14 @@ def execute() -> int:
         parser.error("durations/FPS must be positive and music volume cannot be negative")
     if args.workers <= 0 or args.threads <= 0:
         parser.error("--workers 與 --threads 必須為正整數")
+
+    if args.recursive:
+        media = collect_recursive_media(directory, output, music_path)
+        if not media:
+            parser.error(f"no eligible photos or videos found recursively in {directory} after filtering")
+        report(f"遞迴合併：{directory}，共 {len(media)} 個素材，輸出單一影片：{output}")
+        render_directory(media, output, args, started)
+        return 0
 
     if selected_date:
         report(f"日期合併（{args.date_group}）：{output_name}，共 {len(subdirectories)} 個日期目錄，只使用照片。")

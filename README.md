@@ -73,6 +73,22 @@ python3 media-to-video/media_to_video.py "/path/to/albums" \
 
 每支影片完成後顯示照片數、影片數與耗時，最後顯示整批合併數量與執行時間。沒有子目錄時，維持原本單一影片的輸出方式。
 
+### 所有子目錄合併成一支影片
+
+使用 `--recursive` 遞迴讀取根目錄與所有層級子目錄，將照片與符合條件的影片合併成單一 MP4：
+
+```bash
+python3 media-to-video/media_to_video.py /Volumes/photo/picture/2024/ \
+  --recursive \
+  --output /Volumes/photo/picture/2024.mp4
+```
+
+`--recursive` 優先於 `--date-group`，不用另外指定 `none`。未指定 `--output` 時，以輸入目錄名稱命名，輸出到目前工作目錄，例如 `2024.mp4`。
+
+素材依相對路徑排序（不區分大小寫），包含根目錄素材；不走訪符號連結目錄，也不收集指定背景音樂目錄中的素材。輸出影片本身會排除，輸出已存在時沿用跳過規則。
+
+沿用原有影片篩選：檔名以 `video` 開頭或大於 200 MB 的影片排除；超過 10 部影片的限制按每個素材所在目錄分別判斷，不按全年總數判斷。照片秒數、音樂、解析度與並行設定照常套用。
+
 ### 日期目錄按月份合併
 
 使用 `--date-group` 選擇日期目錄分組方式：
