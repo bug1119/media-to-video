@@ -29,6 +29,11 @@ class ResolutionTest(unittest.TestCase):
     def test_manual_and_auto_resolution_parsing(self):
         self.assertIsNone(parse_resolution("auto"))
         self.assertEqual(parse_resolution("3840x2160"), (3840, 2160))
+        for name, size in [("720p", (1280, 720)), ("1080p", (1920, 1080)),
+                           ("2k", (2560, 1440)), ("4k", (3840, 2160))]:
+            with self.subTest(name=name):
+                self.assertEqual(parse_resolution(name), size)
+                self.assertEqual(parse_resolution(name.upper()), size)
 
     def test_mixed_media_uses_only_video_dimensions(self):
         media = [Path("small.jpg"), Path("4k.MOV"), Path("2k.mp4")]
@@ -54,7 +59,7 @@ class ResolutionTest(unittest.TestCase):
             self.assertEqual(main(), 2)
         self.assertIn("examples:", output.getvalue())
         self.assertIn("--music music.mp3", output.getvalue())
-        self.assertIn("--resolution 3840x2160", output.getvalue())
+        self.assertIn("--resolution 4k", output.getvalue())
 
 
 if __name__ == "__main__":

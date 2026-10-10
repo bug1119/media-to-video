@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", "-o", type=Path, help="輸出MP4（預設：目前目錄的 <素材目錄名稱>-videos.mp4）")
     parser.add_argument("--time-source", choices=("recorded", "mtime"), default="recorded",
                         help="recorded：影片creation_time，缺少時用修改時間；mtime：只用修改時間（預設recorded）")
-    parser.add_argument("--resolution", type=parse_resolution, default=None, help="auto 或寬x高，例如1920x1080（預設auto）")
+    parser.add_argument("--resolution", type=parse_resolution, default=None, help="720p、1080p、2k、4k，或auto；亦支援寬x高（預設auto）")
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--fit", choices=("pad", "crop"), default="pad")
     parser.add_argument("--workers", type=int, default=2)

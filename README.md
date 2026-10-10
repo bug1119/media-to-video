@@ -32,7 +32,7 @@ python3 ~/git/media-to-video/videos_by_time.py /Volumes/photo/picture/2024/ --li
 
 可用 `--time-source mtime` 改為只依修改時間排序。支援MP4、MOV、M4V、AVI、MKV、WEBM；不套用照片合併程式的檔名、200MB或10部影片篩選，會列出並跳過無效影片。遞迴不走訪符號連結目錄，排除輸出本身，輸出已存在時跳過。
 
-保留原音，沒有音訊的片段補靜音。不同格式、解析度與幀率會重新編碼為一致的 H.264/AAC MP4後串接。可用 `--resolution 1920x1080 --fps 30 --workers 2 --threads 4` 控制轉檔；預設自動解析度、30fps、保留完整畫面補黑邊。未指定輸出時，放在目前目錄的 `<素材目錄名稱>-videos.mp4`。執行log位於輸出MP4旁的同名 `.log`。
+保留原音，沒有音訊的片段補靜音。不同格式、解析度與幀率會重新編碼為一致的 H.264/AAC MP4後串接。可用 `--resolution 1080p --fps 30 --workers 2 --threads 4` 控制轉檔；預設自動解析度、30fps、保留完整畫面補黑邊。未指定輸出時，放在目前目錄的 `<素材目錄名稱>-videos.mp4`。執行log位於輸出MP4旁的同名 `.log`。
 
 直接執行但不帶參數時，會顯示完整參數與使用範例：
 
@@ -59,10 +59,22 @@ python3 media-to-video/media_to_video.py "/path/to/media" \
 
 也可停用自動判斷，手動指定輸出解析度：
 
+兩支程式的 `--resolution` 都支援以下名稱（不區分大小寫）：
+
+| 參數 | 輸出尺寸 |
+| --- | --- |
+| `720p` | 1280×720 |
+| `1080p` | 1920×1080 |
+| `2k` | 2560×1440（QHD） |
+| `4k` | 3840×2160（UHD） |
+| `auto` | 依素材自動選擇（預設） |
+
+仍支援自訂尺寸，例如 `1080x1920`。固定解析度會將所有片段縮放至指定尺寸，低解析度來源放大不會增加原有細節。
+
 ```bash
 python3 media-to-video/media_to_video.py "/path/to/media" \
   --output "/path/to/output.mp4" \
-  --resolution 3840x2160
+  --resolution 4k
 ```
 
 ### 子目錄批次輸出

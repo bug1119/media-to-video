@@ -254,12 +254,21 @@ def add_music(source: Path, music: Path, output: Path, mode: str, volume: float)
 
 
 def parse_resolution(value: str) -> tuple[int, int] | None:
-    if value.lower() == "auto":
+    value = value.strip().lower()
+    if value == "auto":
         return None
+    presets = {
+        "720p": (1280, 720),
+        "1080p": (1920, 1080),
+        "2k": (2560, 1440),
+        "4k": (3840, 2160),
+    }
+    if value in presets:
+        return presets[value]
     try:
         width, height = (int(part) for part in value.lower().split("x", 1))
     except (ValueError, TypeError):
-        raise argparse.ArgumentTypeError("resolution must look like 1920x1080") from None
+        raise argparse.ArgumentTypeError("resolution must be auto, 720p, 1080p, 2k, 4k or WIDTHxHEIGHT") from None
     if width <= 0 or height <= 0 or width % 2 or height % 2:
         raise argparse.ArgumentTypeError("resolution dimensions must be positive even numbers")
     return width, height
@@ -449,7 +458,7 @@ def execute() -> int:
 
   Force 4K output and crop every item to fill the frame:
     %(prog)s /path/to/media --output output-4k.mp4 \\
-      --resolution 3840x2160 --fit crop
+      --resolution 4k --fit crop
 
   Render each immediate subdirectory into a separate video:
     %(prog)s /path/to/albums --output /path/to/output-directory
@@ -484,7 +493,7 @@ def execute() -> int:
     )
     parser.add_argument(
         "--resolution", type=parse_resolution, default=None,
-        help="輸出解析度：auto 優先依影片選擇 4K/2K/1080p，無影片時依照片；或指定正偶數尺寸，例如 3840x2160（預設：auto）",
+        help="輸出解析度：720p、1080p、2k、4k，或 auto 自動選擇；亦支援寬x高（預設：auto）",
     )
     parser.add_argument("--fps", type=int, default=30, help="輸出影片每秒影格數（預設：30）")
     parser.add_argument(
